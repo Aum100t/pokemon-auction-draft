@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pokémon Auction Draft</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+  <h1>⚡ Pokémon Auction Draft</h1>
+
+  <!-- หน้าแรก: สร้างห้อง / เข้าห้อง -->
+  <div id="screen-home" class="card">
+    <div class="tabs">
+      <button class="tab-btn active" id="tab-create">สร้างห้อง</button>
+      <button class="tab-btn" id="tab-join">เข้าห้อง</button>
+    </div>
+
+    <div id="form-create">
+      <input type="text" id="create-name" placeholder="ชื่อของคุณ" maxlength="20">
+      <select id="create-max-players">
+        <option value="2">2 คน</option>
+        <option value="3">3 คน</option>
+        <option value="4" selected>4 คน</option>
+        <option value="5">5 คน</option>
+        <option value="6">6 คน</option>
+        <option value="7">7 คน</option>
+        <option value="8">8 คน</option>
+      </select>
+      <button class="primary" id="btn-create">สร้างห้อง</button>
+    </div>
+
+    <div id="form-join" class="hidden">
+      <input type="text" id="join-name" placeholder="ชื่อของคุณ" maxlength="20">
+      <input type="text" id="join-code" placeholder="รหัสห้อง (6 หลัก)" maxlength="6" style="text-transform:uppercase">
+      <button class="primary" id="btn-join">เข้าห้อง</button>
+    </div>
+
+    <div id="home-error" class="error"></div>
+  </div>
+
+  <!-- ห้องรอ (Lobby) -->
+  <div id="screen-lobby" class="card hidden">
+    <p class="small-text">แชร์รหัสห้องนี้ให้เพื่อน</p>
+    <div class="room-code" id="lobby-room-code">------</div>
+    <p class="small-text" id="lobby-count">ผู้เล่น 0/0</p>
+    <ul class="player-list" id="lobby-player-list"></ul>
+    <button class="primary" id="btn-start" disabled>รอผู้เล่น... (อย่างน้อย 2 คน)</button>
+    <p class="small-text" id="lobby-wait-msg">รอโฮสต์เริ่มเกม...</p>
+  </div>
+
+  <!-- ห้องเกม (ระหว่างประมูล) -->
+  <div id="screen-game" class="card hidden">
+
+    <div class="game-header">
+      <span id="turn-indicator" class="turn-indicator">-</span>
+      <span class="small-text">ห้อง: <b id="game-room-code"></b></span>
+    </div>
+
+    <div class="my-status">
+      <div class="status-box"><div class="val" id="my-money">0</div><div class="lbl">เงินคงเหลือ</div></div>
+      <div class="status-box"><div class="val" id="my-team-count">0/10</div><div class="lbl">โปเกม่อน</div></div>
+      <div class="status-box"><div class="val" id="my-pick-status">🎫</div><div class="lbl">ตั๋วเลือก</div></div>
+      <div class="status-box"><div class="val" id="my-ban-status">🚫</div><div class="lbl">ตั๋วแบน</div></div>
+    </div>
+
+    <div class="players-strip" id="players-strip"></div>
+
+    <div id="auction-box" class="auction-box hidden">
+      <img id="auc-img" src="" alt="">
+      <div class="p-name" id="auc-name">-</div>
+      <p class="small-text" id="auc-nominator"></p>
+      <div class="timer" id="auc-timer">10</div>
+      <div class="current-bid" id="auc-bid">ยังไม่มีการบิด</div>
+      <div class="bid-controls" id="bid-controls"></div>
+      <div class="bid-controls">
+        <input type="number" id="custom-bid-input" placeholder="ระบุจำนวนเงิน">
+        <button id="btn-custom-bid">บิด</button>
+      </div>
+      <div class="bid-controls">
+        <button class="btn-snipe" id="btn-snipe-current">🎫 ใช้ตั๋วเลือกแย่งตัวนี้</button>
+      </div>
+    </div>
+
+    <!-- แท็บสลับ พูล / ทีมของฉัน -->
+    <div class="section-tabs">
+      <button class="section-tab-btn active" id="sec-tab-pool">🛒 พูลโปเกม่อน</button>
+      <button class="section-tab-btn" id="sec-tab-team">🎒 ทีมของฉัน (<span id="team-tab-count">0/10</span>)</button>
+    </div>
+
+    <!-- ส่วนพูล -->
+    <div id="pool-section">
+      <input type="text" id="pool-search" placeholder="🔍 ค้นหาชื่อโปเกม่อน...">
+      <div class="pool-tabs">
+        <button class="active" data-filter="all">ทั้งหมด</button>
+        <button data-filter="normal">ร่างธรรมดา</button>
+        <button data-filter="mega">Mega</button>
+      </div>
+      <div class="pool-grid" id="pool-grid"></div>
+    </div>
+
+    <!-- ส่วนทีมของฉัน -->
+    <div id="team-section" class="hidden">
+      <h3 style="margin-bottom:14px;">🎒 ทีมของฉัน</h3>
+      <div class="my-team" id="my-team-grid"></div>
+    </div>
+  </div>
+
+  <!-- หน้าหลังจบการประมูล: สรุปทีม + ระบบแข่งขัน -->
+  <div id="screen-postgame" class="card hidden">
+    <h2 style="text-align:center;margin-bottom:16px;">🏆 การประมูลจบแล้ว!</h2>
+
+    <div class="section-tabs">
+      <button class="section-tab-btn active" id="post-tab-teams">📋 สรุปทีมทั้งหมด</button>
+      <button class="section-tab-btn" id="post-tab-league">⚔️ ตารางแข่งขัน</button>
+    </div>
+
+    <div id="post-teams-section">
+      <div class="teams-summary-grid" id="teams-summary-grid"></div>
+    </div>
+
+    <div id="post-league-section" class="hidden">
+      <div class="week-tabs" id="week-tabs"></div>
+      <div id="week-matches"></div>
+      <h3 style="margin:20px 0 10px;">📊 ตารางคะแนน</h3>
+      <table class="standings-table" id="standings-table"></table>
+      <div class="postgame-actions">
+        <button class="primary" id="btn-new-season">🔄 เริ่มฤดูกาลใหม่ (ห้องเดิม)</button>
+        <button class="primary btn-danger" id="btn-leave-room">🚪 ออกจากห้อง</button>
+      </div>
+    </div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
