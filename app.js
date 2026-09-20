@@ -396,14 +396,63 @@ function generateLeagueIfNeeded(room) {
   room.league = { weeks: generateRoundRobinSchedule(playerIds) };
 }
 
+// ผู้เล่นคนนี้ยัง "บิดได้" อยู่ไหม = ช่องทีมยังไม่เต็ม และมีเงินพอบิดขั้นต่ำ
+function canStillBid(player, room) {
+  const teamCount = player.team ? player.team.length : 0;
+  return teamCount < room.settings.teamSize && (player.money || 0) >= room.settings.minBidIncrement;
+}
+
+// สุ่มโปเกม่อนที่ยังว่าง (available) ให้ผู้เล่นที่เงินหมดแต่ทีมยังไม่เต็ม จนครบ
+// แจกวนทีละตัวทีละคน เพื่อให้แฟร์ถ้าโปเกม่อนในพูลเหลือไม่พอ
+function fillTeamsRandomly(room) {
+  const teamSize = room.settings.teamSize;
+  const available = Object.values(room.pool).filter(p => p.status === "available");
+  for (let i = available.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [available[i], available[j]] = [available[j], available[i]];
+  }
+
+  const needy = Object.keys(room.players).filter(
+    pid => (room.players[pid].team ? room.players[pid].team.length : 0) < teamSize
+  );
+
+  let gaveAny = true;
+  while (gaveAny && available.length > 0) {
+    gaveAny = false;
+    for (const pid of needy) {
+      const player = room.players[pid];
+      if (!player.team) player.team = [];
+      if (player.team.length >= teamSize || available.length === 0) continue;
+      const poke = available.pop();
+      poke.status = "owned";
+      poke.ownerId = pid;
+      player.team.push({
+        id: poke.id,
+        displayName: poke.displayName,
+        isMega: poke.isMega,
+        sprite: poke.sprite,
+        viaRandom: true
+      });
+      gaveAny = true;
+    }
+  }
+}
+
 function checkGameEnd(room) {
-  const allFull = Object.values(room.players).every(
+  const players = Object.values(room.players);
+
+  // ไม่เหลือใครที่บิดได้แล้ว (ทีมเต็ม หรือเงินหมด) -> คนที่เงินหมดแต่ทีมยังไม่เต็ม โดนสุ่มโปเกม่อนให้จนครบ
+  // ตราบใดที่ยังมีคนมีเงิน+ช่องว่าง การประมูลจะดำเนินต่อตามปกติ
+  const noOneCanBid = !players.some(p => canStillBid(p, room));
+  if (noOneCanBid) fillTeamsRandomly(room);
+
+  const allFull = players.every(
     p => (p.team ? p.team.length : 0) >= room.settings.teamSize
   );
   const poolExhausted = Object.values(room.pool).every(
     p => p.status !== "available" && p.status !== "auctioning"
   );
-  if (allFull || poolExhausted) {
+  if (noOneCanBid || allFull || poolExhausted) {
     room.status = "finished";
     generateLeagueIfNeeded(room);
   }
@@ -455,8 +504,10 @@ async function usePickTicket(poolKey) {
     if (!player || player.pickTicketUsed) return room;
     if ((player.team?.length || 0) >= room.settings.teamSize) return room;
     const poke = room.pool[poolKey];
-    if (!poke || poke.status === "banned" || poke.status === "owned" || poke.status === "discarded") return room;
-    if (poke.status === "auctioning" && room.auction?.nominatedBy === currentPlayerId) return room;
+    // ใช้ได้เฉพาะโปเกม่อนที่กำลังขึ้นประมูลอยู่ตอนนี้เท่านั้น
+    if (!room.auction || room.auction.poolKey !== poolKey) return room;
+    if (!poke || poke.status !== "auctioning") return room;
+    if (room.auction.nominatedBy === currentPlayerId) return room;
 
     poke.status = "owned";
     poke.ownerId = currentPlayerId;
@@ -583,6 +634,10 @@ function renderGame(room) {
   } else {
     turnIndicator.textContent = `⏳ ตาของ: ${room.players[myTurnPid]?.name || "-"}`;
   }
+  const meBrokeNotFull = !meFull && me.money < room.settings.minBidIncrement;
+  if (meBrokeNotFull) {
+    turnIndicator.textContent += " | 💸 เงินหมดแล้ว รอระบบสุ่มโปเกม่อนให้จนครบ";
+  }
   turnIndicator.classList.toggle("my-turn", isMyTurn);
 
   document.getElementById("my-money").textContent = me.money.toLocaleString();
@@ -596,8 +651,9 @@ function renderGame(room) {
     const p = room.players[pid];
     const active = pid === myTurnPid;
     const full = (p.team?.length || 0) >= room.settings.teamSize;
+    const broke = !full && p.money < room.settings.minBidIncrement;
     return `<div class="player-chip ${active ? 'active-turn' : ''}">
-      <div>${p.name}${pid === currentPlayerId ? ' (คุณ)' : ''}${full ? ' ✅' : ''}</div>
+      <div>${p.name}${pid === currentPlayerId ? ' (คุณ)' : ''}${full ? ' ✅' : ''}${broke ? ' 💸' : ''}</div>
       <div class="p-money">💰${p.money.toLocaleString()} | 🎒${(p.team||[]).length}/${room.settings.teamSize}</div>
     </div>`;
   }).join("");
@@ -619,7 +675,9 @@ function renderGame(room) {
     const increment = room.settings.minBidIncrement;
     const controlsDiv = document.getElementById("bid-controls");
     controlsDiv.innerHTML = "";
-    if (!meFull) {
+    if (!meFull && me.money < increment) {
+      controlsDiv.innerHTML = '<p class="small-text">💸 เงินของคุณหมดแล้ว ไม่สามารถบิดได้ (เมื่อไม่เหลือใครบิดได้ ระบบจะสุ่มโปเกม่อนให้จนครบทีม)</p>';
+    } else if (!meFull) {
       [increment, increment * 2, increment * 5].forEach(step => {
         const amt = a.currentBid + step;
         if (amt <= me.money) {
@@ -634,7 +692,7 @@ function renderGame(room) {
     }
 
     const customBtn = document.getElementById("btn-custom-bid");
-    customBtn.disabled = meFull;
+    customBtn.disabled = meFull || me.money < increment;
     customBtn.onclick = () => {
       const val = parseInt(document.getElementById("custom-bid-input").value);
       if (!isNaN(val)) placeBid(val);
@@ -681,7 +739,7 @@ function renderPool(room, isMyTurn, me) {
         html += `<button class="btn-ban" data-action="ban" data-id="${poke.id}">แบน 🚫</button>`;
       }
       const cantSnipeOwn = poke.status === "auctioning" && room.auction?.nominatedBy === currentPlayerId;
-      if (!me.pickTicketUsed && !meFull && !cantSnipeOwn) {
+      if (poke.status === "auctioning" && !me.pickTicketUsed && !meFull && !cantSnipeOwn) {
         html += `<button class="btn-pick" data-action="pick" data-id="${poke.id}">ใช้ตั๋วเลือก 🎫</button>`;
       }
       if (poke.status === "auctioning") html += `<div class="owner-tag">⚔️ กำลังประมูล</div>`;
@@ -772,7 +830,7 @@ function renderTeamsSummary(room) {
           <div class="team-slot">
             <img src="${t.sprite}" alt="">
             <span>${t.displayName}${t.isMega ? ' 🌟' : ''}</span>
-            ${t.price ? `<span class="price-tag">💰${t.price.toLocaleString()}</span>` : (t.viaTicket ? '<span class="price-tag">🎫 ตั๋ว</span>' : '')}
+            ${t.price ? `<span class="price-tag">💰${t.price.toLocaleString()}</span>` : (t.viaTicket ? '<span class="price-tag">🎫 ตั๋ว</span>' : (t.viaRandom ? '<span class="price-tag">🎲 สุ่มให้</span>' : ''))}
           </div>`).join("")}
       </div>
     </div>
@@ -1155,7 +1213,7 @@ function renderArchiveDetail(archive) {
           <div class="team-slot">
             <img src="${t.sprite}" alt="">
             <span>${t.displayName}${t.isMega ? ' 🌟' : ''}</span>
-            ${t.price ? `<span class="price-tag">💰${t.price.toLocaleString()}</span>` : (t.viaTicket ? '<span class="price-tag">🎫 ตั๋ว</span>' : '')}
+            ${t.price ? `<span class="price-tag">💰${t.price.toLocaleString()}</span>` : (t.viaTicket ? '<span class="price-tag">🎫 ตั๋ว</span>' : (t.viaRandom ? '<span class="price-tag">🎲 สุ่มให้</span>' : ''))}
           </div>`).join("")}
       </div>
     </div>
