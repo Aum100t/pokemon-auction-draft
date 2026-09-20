@@ -40,6 +40,15 @@
     <div id="home-error" class="error"></div>
 
     <button class="primary" id="btn-open-archives" style="background:#4dd0e1;">📚 ดูทัวร์นาเมนต์ย้อนหลัง</button>
+
+    <!-- เข้าสู่ระบบแอดมิน (ไว้แก้ไข/ลบทัวร์นาเมนต์ย้อนหลัง) -->
+    <div class="auth-bar">
+      <button class="auth-link" id="btn-login">🔐 เข้าสู่ระบบแอดมิน</button>
+      <div id="auth-info" class="hidden">
+        <span id="auth-email"></span>
+        <button class="auth-link" id="btn-logout">ออกจากระบบ</button>
+      </div>
+    </div>
   </div>
 
   <!-- ห้องรอ (Lobby) -->
@@ -90,6 +99,7 @@
     <div class="section-tabs">
       <button class="section-tab-btn active" id="sec-tab-pool">🛒 พูลโปเกม่อน</button>
       <button class="section-tab-btn" id="sec-tab-team">🎒 ทีมของฉัน (<span id="team-tab-count">0/10</span>)</button>
+      <button class="section-tab-btn" id="sec-tab-others">👥 ทีมผู้เล่นอื่น</button>
     </div>
 
     <!-- ส่วนพูล -->
@@ -107,6 +117,12 @@
     <div id="team-section" class="hidden">
       <h3 style="margin-bottom:14px;">🎒 ทีมของฉัน</h3>
       <div class="my-team" id="my-team-grid"></div>
+    </div>
+
+    <!-- ส่วนดูทีมของผู้เล่นคนอื่นระหว่างดราฟ -->
+    <div id="others-section" class="hidden">
+      <h3 style="margin-bottom:14px;">👥 ทีมของผู้เล่นคนอื่น</h3>
+      <div class="teams-summary-grid" id="others-team-grid"></div>
     </div>
   </div>
 
@@ -129,6 +145,7 @@
 
     <div id="post-teams-section">
       <div class="teams-summary-grid" id="teams-summary-grid"></div>
+      <div id="banned-summary"></div>
     </div>
 
     <div id="post-league-section" class="hidden">
@@ -150,6 +167,17 @@
       <button class="btn-leave-small" id="btn-archives-back">⬅ กลับหน้าแรก</button>
     </div>
     <input type="text" id="archives-search" placeholder="🔍 ค้นหาชื่อทัวร์นาเมนต์...">
+
+    <!-- จัดการผู้มีสิทธิ์ (เห็นเฉพาะเจ้าของ) -->
+    <div id="admin-panel" class="admin-panel hidden">
+      <h3>🔑 ผู้ที่มีสิทธิ์แก้ไข/ลบทัวร์นาเมนต์</h3>
+      <p class="small-text">เพิ่มอีเมล Google ของคนที่ไว้ใจ เขาต้องกด "เข้าสู่ระบบแอดมิน" ด้วยอีเมลนั้น</p>
+      <div class="admin-add-row">
+        <input type="email" id="admin-email-input" placeholder="อีเมล Google ของคนที่จะให้สิทธิ์">
+        <button class="primary" id="btn-add-admin">➕ เพิ่ม</button>
+      </div>
+      <ul class="player-list" id="admin-list"></ul>
+    </div>
     <div id="archives-list"></div>
   </div>
 
@@ -161,6 +189,16 @@
     </div>
     <p class="small-text" id="archive-detail-meta"></p>
 
+    <!-- เครื่องมือแอดมิน (เห็นเฉพาะคนที่มีสิทธิ์) -->
+    <div id="archive-admin-bar" class="archive-admin-bar hidden">
+      <button class="btn-edit" id="btn-archive-edit">✏️ โหมดแก้ไข</button>
+      <button class="btn-leave-small" id="btn-archive-delete">🗑️ ลบทัวร์นาเมนต์</button>
+    </div>
+    <div id="archive-rename-box" class="archive-rename-box hidden">
+      <input type="text" id="archive-rename-input" maxlength="40" placeholder="ชื่อทัวร์นาเมนต์">
+      <button class="primary" id="btn-archive-rename">💾 บันทึกชื่อ</button>
+    </div>
+
     <div class="section-tabs">
       <button class="section-tab-btn active" id="adet-tab-teams">📋 สรุปทีม</button>
       <button class="section-tab-btn" id="adet-tab-league">⚔️ ตารางแข่งขัน</button>
@@ -168,6 +206,7 @@
 
     <div id="adet-teams-section">
       <div class="teams-summary-grid" id="adet-teams-grid"></div>
+      <div id="adet-banned-summary"></div>
     </div>
     <div id="adet-league-section" class="hidden">
       <div class="week-tabs" id="adet-week-tabs"></div>

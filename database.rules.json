@@ -1,0 +1,21 @@
+{
+  "rules": {
+    "rooms": {
+      ".read": true,
+      ".write": true
+    },
+    "archives": {
+      ".read": true,
+      "$archiveId": {
+        ".write": "(!data.exists() && newData.exists()) || (auth != null && auth.token.email_verified === true && root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).exists())"
+      }
+    },
+    "admins": {
+      ".read": "auth != null && root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).val() === 'owner'",
+      "$emailKey": {
+        ".read": "auth != null && $emailKey === auth.token.email.toLowerCase().replace('.', ',')",
+        ".write": "auth != null && auth.token.email_verified === true && root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).val() === 'owner'"
+      }
+    }
+  }
+}

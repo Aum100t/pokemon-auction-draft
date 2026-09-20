@@ -160,3 +160,37 @@ button.primary:disabled { background: #888; cursor: not-allowed; }
 .archive-item .a-name { font-weight: bold; font-size: 16px; }
 .archive-item .a-meta { font-size: 12px; opacity: 0.75; }
 .archives-empty { text-align: center; opacity: 0.7; padding: 30px 0; }
+
+/* ===== ดูทีมผู้เล่นอื่น / รายการแบน ===== */
+#others-section { background: rgba(255,255,255,0.05); border-radius: 14px; padding: 20px; }
+.banned-card { margin-top: 16px; }
+.banned-slot img { filter: grayscale(1); opacity: 0.75; }
+.banned-slot .price-tag { color: #ff6b6b; }
+@media (max-width: 700px) {
+  .section-tab-btn { font-size: 13px; padding: 10px 4px; }
+}
+
+/* ===== แอดมิน: เข้าสู่ระบบ / แก้ไข / ลบ ===== */
+.auth-bar { margin-top: 14px; text-align: center; font-size: 13px; opacity: 0.85; }
+.auth-link { background: none; border: none; color: #ffcb05; text-decoration: underline; cursor: pointer; font-size: 13px; padding: 4px 6px; }
+#auth-info span { margin-right: 6px; }
+
+.admin-panel { background: rgba(255,255,255,0.06); border-radius: 14px; padding: 16px; margin: 14px 0; }
+.admin-add-row { display: flex; gap: 8px; align-items: center; }
+.admin-add-row input { flex: 1; }
+.admin-add-row button.primary { width: auto; margin: 8px 0; padding: 12px 18px; }
+
+.archive-admin-bar { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 12px 0; }
+.btn-edit { background: #4dd0e1; color: #1e3c72; border: none; border-radius: 20px; padding: 8px 14px; font-size: 13px; font-weight: bold; cursor: pointer; }
+.archive-rename-box { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+.archive-rename-box input { flex: 1; }
+.archive-rename-box button.primary { width: auto; margin: 8px 0; padding: 12px 18px; }
+
+.archive-item-actions { display: flex; align-items: center; gap: 8px; }
+.btn-del-mini { background: rgba(255,107,107,0.9); color: #fff; border: none; border-radius: 8px; padding: 6px 10px; cursor: pointer; font-size: 13px; }
+
+.team-slot.editable { position: relative; }
+.slot-remove { position: absolute; top: 2px; right: 2px; width: 22px; height: 22px; border: none; border-radius: 50%; background: #ff6b6b; color: #fff; font-size: 12px; cursor: pointer; line-height: 1; }
+.add-poke-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+.add-poke-row select { flex: 1; }
+.add-poke-row button { background: #ffcb05; color: #1e3c72; font-weight: bold; border: none; border-radius: 8px; padding: 10px 12px; cursor: pointer; white-space: nowrap; }

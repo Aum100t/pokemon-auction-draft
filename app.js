@@ -1,7 +1,10 @@
-import { db } from "./firebase-config.js";
+import { db, auth } from "./firebase-config.js";
 import {
   ref, set, get, push, onValue, update, onDisconnect, child, runTransaction
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js";
+import {
+  GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
 import { POKEMON_LIST } from "./pokemon-list.js";
 
 // ---------- Utility ----------
@@ -25,6 +28,14 @@ let currentSection = "pool";
 let currentWeekView = 1;
 let latestRoom = null;
 let disconnectCancelled = false;
+// แอดมิน (ตรวจสิทธิ์จริงที่ Firebase Rules — ฝั่งนี้แค่ใช้ซ่อน/โชว์ปุ่ม)
+let currentUser = null;
+let isAdmin = false;
+let isOwner = false;
+let currentArchiveId = null;
+let currentArchiveData = null;
+let archiveEditMode = false;
+let archivesDirty = false;
 
 // ---------- DOM ----------
 const screenHome = document.getElementById("screen-home");
@@ -441,18 +452,27 @@ function fillTeamsRandomly(room) {
 function checkGameEnd(room) {
   const players = Object.values(room.players);
 
-  // ไม่เหลือใครที่บิดได้แล้ว (ทีมเต็ม หรือเงินหมด) -> คนที่เงินหมดแต่ทีมยังไม่เต็ม โดนสุ่มโปเกม่อนให้จนครบ
-  // ตราบใดที่ยังมีคนมีเงิน+ช่องว่าง การประมูลจะดำเนินต่อตามปกติ
+  const teamSize = room.settings.teamSize;
+
+  // 1) ไม่เหลือใครที่บิดได้แล้ว (ทีมเต็ม หรือเงินหมด) -> คนที่ทีมยังไม่เต็มโดนสุ่มโปเกม่อนให้จนครบ
+  //    ตราบใดที่ยังมีคนมีเงิน+ช่องว่าง การประมูลจะดำเนินต่อตามปกติ
   const noOneCanBid = !players.some(p => canStillBid(p, room));
-  if (noOneCanBid) fillTeamsRandomly(room);
+
+  // 2) เหลือผู้เล่นที่ทีมยังไม่เต็มแค่คนเดียว (คนอื่นเต็มหมดแล้ว) -> ไม่มีคู่แข่ง สุ่มให้เต็มเลย
+  const incompleteCount = players.filter(
+    p => (p.team ? p.team.length : 0) < teamSize
+  ).length;
+  const onlyOneLeft = incompleteCount === 1;
+
+  if (noOneCanBid || onlyOneLeft) fillTeamsRandomly(room);
 
   const allFull = players.every(
-    p => (p.team ? p.team.length : 0) >= room.settings.teamSize
+    p => (p.team ? p.team.length : 0) >= teamSize
   );
   const poolExhausted = Object.values(room.pool).every(
     p => p.status !== "available" && p.status !== "auctioning"
   );
-  if (noOneCanBid || allFull || poolExhausted) {
+  if (noOneCanBid || onlyOneLeft || allFull || poolExhausted) {
     room.status = "finished";
     generateLeagueIfNeeded(room);
   }
@@ -708,6 +728,84 @@ function renderGame(room) {
 
   renderPool(room, isMyTurn, me);
   renderMyTeam(me, room.settings.teamSize);
+  renderOthersTeams(room);
+}
+
+function escapeHtml(str) {
+  return String(str ?? "").replace(/[&<>"']/g, ch => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
+  ));
+}
+
+function teamSlotHtml(t, edit) {
+  const tag = t.price
+    ? `<span class="price-tag">💰${t.price.toLocaleString()}</span>`
+    : (t.viaTicket ? '<span class="price-tag">🎫 ตั๋ว</span>'
+      : (t.viaRandom ? '<span class="price-tag">🎲 สุ่มให้</span>' : ''));
+  const removeBtn = edit
+    ? `<button class="slot-remove" title="เอาออกจากทีม" data-remove-pid="${escapeHtml(edit.pid)}" data-remove-idx="${edit.idx}">✕</button>`
+    : '';
+  return `<div class="team-slot${edit ? ' editable' : ''}">
+    ${removeBtn}
+    <img src="${t.sprite}" alt="">
+    <span>${escapeHtml(t.displayName)}${t.isMega ? ' 🌟' : ''}</span>
+    ${tag}
+  </div>`;
+}
+
+// ดูทีมของผู้เล่นคนอื่นระหว่างดราฟ (อัปเดตสดตามห้อง)
+let lastOthersHtml = "";
+function renderOthersTeams(room) {
+  const grid = document.getElementById("others-team-grid");
+  if (!grid || !room.turnOrder) return;
+  const teamSize = room.settings.teamSize;
+
+  const html = room.turnOrder
+    .filter(pid => pid !== currentPlayerId && room.players[pid])
+    .map(pid => {
+      const p = room.players[pid];
+      const team = p.team || [];
+      const body = team.length
+        ? team.map(t => teamSlotHtml(t)).join("")
+        : '<p class="small-text" style="grid-column:1/-1;">ยังไม่มีโปเกม่อน</p>';
+      return `<div class="team-summary-card">
+        <h4>${escapeHtml(p.name)}${pid === room.hostId ? ' <span class="badge">HOST</span>' : ''}</h4>
+        <p class="small-text">💰${(p.money || 0).toLocaleString()} | 🎒${team.length}/${teamSize}</p>
+        <div class="my-team">${body}</div>
+      </div>`;
+    }).join("") || '<p class="archives-empty">ไม่มีผู้เล่นคนอื่น</p>';
+
+  if (html !== lastOthersHtml) {
+    grid.innerHTML = html;
+    lastOthersHtml = html;
+  }
+}
+
+// รายชื่อโปเกม่อนที่ถูกแบน (ไว้โชว์ตอนสรุป และเก็บลงคลังทัวร์นาเมนต์)
+function getBannedList(room) {
+  return Object.values(room.pool || {})
+    .filter(poke => poke.status === "banned")
+    .map(poke => ({
+      displayName: poke.displayName,
+      isMega: !!poke.isMega,
+      sprite: poke.sprite || "",
+      bannedByName: room.players?.[poke.bannedBy]?.name || "?"
+    }));
+}
+
+function bannedSummaryHtml(list) {
+  const body = list.length
+    ? `<div class="my-team">${list.map(b => `
+        <div class="team-slot banned-slot">
+          <img src="${b.sprite}" alt="">
+          <span>${escapeHtml(b.displayName)}${b.isMega ? ' 🌟' : ''}</span>
+          <span class="price-tag">🚫 แบนโดย ${escapeHtml(b.bannedByName)}</span>
+        </div>`).join("")}</div>`
+    : '<p class="small-text">ไม่มีโปเกม่อนที่ถูกแบน</p>';
+  return `<div class="team-summary-card banned-card">
+    <h4>🚫 โปเกม่อนที่ถูกแบน (${list.length})</h4>
+    ${body}
+  </div>`;
 }
 
 function renderPool(room, isMyTurn, me) {
@@ -789,20 +887,17 @@ document.getElementById("pool-search").addEventListener("input", (e) => {
   rerenderPoolOnly();
 });
 
-document.getElementById("sec-tab-pool").addEventListener("click", () => {
-  currentSection = "pool";
-  document.getElementById("sec-tab-pool").classList.add("active");
-  document.getElementById("sec-tab-team").classList.remove("active");
-  document.getElementById("pool-section").classList.remove("hidden");
-  document.getElementById("team-section").classList.add("hidden");
-});
-document.getElementById("sec-tab-team").addEventListener("click", () => {
-  currentSection = "team";
-  document.getElementById("sec-tab-team").classList.add("active");
-  document.getElementById("sec-tab-pool").classList.remove("active");
-  document.getElementById("team-section").classList.remove("hidden");
-  document.getElementById("pool-section").classList.add("hidden");
-});
+function switchSection(name) {
+  currentSection = name;
+  const map = { pool: "pool-section", team: "team-section", others: "others-section" };
+  Object.entries(map).forEach(([key, secId]) => {
+    document.getElementById(secId).classList.toggle("hidden", key !== name);
+    document.getElementById(`sec-tab-${key}`).classList.toggle("active", key === name);
+  });
+}
+document.getElementById("sec-tab-pool").addEventListener("click", () => switchSection("pool"));
+document.getElementById("sec-tab-team").addEventListener("click", () => switchSection("team"));
+document.getElementById("sec-tab-others").addEventListener("click", () => switchSection("others"));
 
 function rerenderPoolOnly() {  if (!latestRoom || !latestRoom.turnOrder || latestRoom.status !== "picking") return;
   const myTurnPid = latestRoom.turnOrder[latestRoom.currentTurnIndex];
@@ -835,6 +930,9 @@ function renderTeamsSummary(room) {
       </div>
     </div>
   `).join("");
+
+  const bannedBox = document.getElementById("banned-summary");
+  if (bannedBox) bannedBox.innerHTML = bannedSummaryHtml(getBannedList(room));
 }
 
 function computeStandings(room) {
@@ -1050,8 +1148,12 @@ function renderArchiveBox(room) {
     btn.textContent = "💾 บันทึกทัวร์นาเมนต์ (ให้ทุกคนดูได้)";
   }
 
-  // เฉพาะโฮสต์เท่านั้นที่บันทึก/อัปเดตได้ กันข้อมูลชนกัน
-  controlsEl.classList.toggle("hidden", !isHost);
+  // สร้างครั้งแรก: โฮสต์กดได้ | หลังบันทึกแล้ว: ต้องเป็นโฮสต์ที่เป็นแอดมินด้วยถึงจะอัปเดตทับได้
+  const canUseControls = saved ? (isHost && isAdmin) : isHost;
+  controlsEl.classList.toggle("hidden", !canUseControls);
+  if (saved && !isAdmin) {
+    statusEl.innerHTML += `<br><span class="small-text">การแก้ไขภายหลังทำได้เฉพาะแอดมิน</span>`;
+  }
 }
 async function saveOrUpdateArchive() {
   const room = latestRoom;
@@ -1066,8 +1168,20 @@ async function saveOrUpdateArchive() {
   btn.textContent = isUpdate ? "กำลังอัปเดต..." : "กำลังบันทึก...";
 
   try {
-    const archiveId = room.archiveId || push(ref(db, "archives")).key;
-    const createdAt = room.archiveCreatedAt || Date.now();
+    let archiveId = room.archiveId;
+    let createdAt = room.archiveCreatedAt || Date.now();
+    let creating = !isUpdate;
+    if (isUpdate) {
+      // ถ้าอันเดิมโดนแอดมินลบไปแล้ว ให้ถือว่าบันทึกใหม่
+      const existing = await get(ref(db, `archives/${archiveId}`));
+      if (!existing.exists()) {
+        creating = true;
+        archiveId = push(ref(db, "archives")).key;
+        createdAt = Date.now();
+      }
+    } else {
+      archiveId = push(ref(db, "archives")).key;
+    }
 
     const snapshot = {
       name,
@@ -1079,12 +1193,14 @@ async function saveOrUpdateArchive() {
       settings: room.settings || null,
       players: room.players || {},
       hostId: room.hostId || null,
-      league: room.league || null
+      league: room.league || null,
+      bannedList: getBannedList(room),
+      hasBanInfo: true
     };
 
     await set(ref(db, `archives/${archiveId}`), snapshot);
 
-    if (!isUpdate) {
+    if (creating) {
       await updateRoom((r) => {
         r.archiveId = archiveId;
         r.archiveName = name;
@@ -1143,17 +1259,27 @@ function renderArchivesList(list) {
   container.innerHTML = list.map(a => {
     const date = a.updatedAt ? new Date(a.updatedAt).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" }) : "-";
     return `
-      <div class="archive-item" data-id="${a.id}">
+      <div class="archive-item" data-id="${escapeHtml(a.id)}">
         <div>
-          <div class="a-name">🏆 ${a.name || "ไม่มีชื่อ"}</div>
-          <div class="a-meta">ผู้เล่น ${a.playerCount || 0} คน • โฮสต์: ${a.hostName || "-"} • อัปเดตล่าสุด ${date}</div>
+          <div class="a-name">🏆 ${escapeHtml(a.name || "ไม่มีชื่อ")}</div>
+          <div class="a-meta">ผู้เล่น ${a.playerCount || 0} คน • โฮสต์: ${escapeHtml(a.hostName || "-")} • อัปเดตล่าสุด ${date}</div>
         </div>
-        <span class="badge">ดูรายละเอียด ➜</span>
+        <div class="archive-item-actions">
+          <span class="badge">ดูรายละเอียด ➜</span>
+          ${isAdmin ? `<button class="btn-del-mini" data-del="${escapeHtml(a.id)}" title="ลบทัวร์นาเมนต์">🗑️</button>` : ""}
+        </div>
       </div>`;
   }).join("");
 
   container.querySelectorAll(".archive-item").forEach(el => {
     el.addEventListener("click", () => openArchiveDetail(el.dataset.id));
+  });
+  container.querySelectorAll("[data-del]").forEach(btn => {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const item = allArchivesCache.find(x => x.id === btn.dataset.del);
+      deleteArchive(btn.dataset.del, item?.name || "ไม่มีชื่อ");
+    });
   });
 }
 
@@ -1189,6 +1315,8 @@ async function openArchiveDetail(archiveId) {
     }
     const archive = snap.val();
     currentArchiveWeekView = 1;
+    currentArchiveId = archiveId;
+    archiveEditMode = false;
     renderArchiveDetail(archive);
   } catch (e) {
     console.error("openArchiveDetail error:", e);
@@ -1197,27 +1325,58 @@ async function openArchiveDetail(archiveId) {
 }
 
 function renderArchiveDetail(archive) {
+  currentArchiveData = archive;
+  const editing = isAdmin && archiveEditMode;
+
   document.getElementById("archive-detail-title").textContent = `🏆 ${archive.name || "ไม่มีชื่อ"}`;
   const date = archive.updatedAt ? new Date(archive.updatedAt).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" }) : "-";
   document.getElementById("archive-detail-meta").textContent =
     `ห้อง: ${archive.roomId || "-"} • โฮสต์: ${archive.hostName || "-"} • ผู้เล่น ${archive.playerCount || 0} คน • อัปเดตล่าสุด ${date}`;
 
+  // แถบเครื่องมือแอดมิน
+  document.getElementById("archive-admin-bar").classList.toggle("hidden", !isAdmin);
+  document.getElementById("btn-archive-edit").textContent = editing ? "✅ เสร็จสิ้นการแก้ไข" : "✏️ โหมดแก้ไข";
+  const renameBox = document.getElementById("archive-rename-box");
+  renameBox.classList.toggle("hidden", !editing);
+  const renameInput = document.getElementById("archive-rename-input");
+  if (editing && document.activeElement !== renameInput) renameInput.value = archive.name || "";
+
   const players = archive.players || {};
   const grid = document.getElementById("adet-teams-grid");
   grid.innerHTML = Object.entries(players).map(([pid, p]) => `
     <div class="team-summary-card">
-      <h4>${p.name}${pid === archive.hostId ? ' <span class="badge">HOST</span>' : ''}</h4>
+      <h4>${escapeHtml(p.name)}${pid === archive.hostId ? ' <span class="badge">HOST</span>' : ''}</h4>
       <p class="small-text">เงินคงเหลือ: ${(p.money || 0).toLocaleString()}</p>
       <div class="my-team">
-        ${(p.team || []).map(t => `
-          <div class="team-slot">
-            <img src="${t.sprite}" alt="">
-            <span>${t.displayName}${t.isMega ? ' 🌟' : ''}</span>
-            ${t.price ? `<span class="price-tag">💰${t.price.toLocaleString()}</span>` : (t.viaTicket ? '<span class="price-tag">🎫 ตั๋ว</span>' : (t.viaRandom ? '<span class="price-tag">🎲 สุ่มให้</span>' : ''))}
-          </div>`).join("")}
+        ${(p.team || []).map((t, idx) => teamSlotHtml(t, editing ? { pid, idx } : null)).join("")}
       </div>
+      ${editing ? `
+        <div class="add-poke-row">
+          <select data-add-select="${escapeHtml(pid)}">
+            <option value="">— เลือกโปเกม่อนที่จะเพิ่ม —</option>
+            ${POKEMON_LIST.map((pk, i) => `<option value="${i}">${escapeHtml(pk.displayName)}</option>`).join("")}
+          </select>
+          <button data-add-pid="${escapeHtml(pid)}">➕ เพิ่ม</button>
+        </div>` : ""}
     </div>
   `).join("") || `<p class="archives-empty">ไม่มีข้อมูลทีม</p>`;
+
+  if (editing) {
+    grid.querySelectorAll("[data-remove-pid]").forEach(btn => {
+      btn.addEventListener("click", () => archiveRemovePokemon(btn.dataset.removePid, parseInt(btn.dataset.removeIdx)));
+    });
+    grid.querySelectorAll("[data-add-pid]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const sel = grid.querySelector(`select[data-add-select="${CSS.escape(btn.dataset.addPid)}"]`);
+        if (sel && sel.value !== "") archiveAddPokemon(btn.dataset.addPid, parseInt(sel.value), btn);
+      });
+    });
+  }
+
+  const adetBanned = document.getElementById("adet-banned-summary");
+  if (adetBanned) {
+    adetBanned.innerHTML = archive.hasBanInfo ? bannedSummaryHtml(Object.values(archive.bannedList || {})) : "";
+  }
 
   const league = archive.league;
   const leagueSection = document.getElementById("adet-league-section");
@@ -1264,25 +1423,44 @@ function renderArchiveLeague(archive) {
   });
 
   const week = weeks.find(w => w.weekNumber === currentArchiveWeekView) || weeks[0];
+  const weekIdx = weeks.indexOf(week);
+  const editing = isAdmin && archiveEditMode;
   const matchesDiv = document.getElementById("adet-week-matches");
-  matchesDiv.innerHTML = week.matches.map(m => {
+  matchesDiv.innerHTML = week.matches.map((m, matchIdx) => {
     if (m.isBye) {
       const p = archive.players[m.player1Id];
-      return `<div class="match-card bye-card"><span>${p?.name || "?"}</span><span class="badge">BYE</span></div>`;
+      return `<div class="match-card bye-card"><span>${escapeHtml(p?.name || "?")}</span><span class="badge">BYE</span></div>`;
     }
     const p1 = archive.players[m.player1Id];
     const p2 = archive.players[m.player2Id];
     const p1Win = m.winnerId === m.player1Id;
     const p2Win = m.winnerId === m.player2Id;
+    const controls = editing ? `
+      <div class="match-controls">
+        <button class="btn-winner ${p1Win ? 'selected' : ''}" data-wi="${weekIdx}" data-mi="${matchIdx}" data-winner="${escapeHtml(m.player1Id)}">${escapeHtml(p1?.name || "?")} ชนะ</button>
+        <button class="btn-winner ${p2Win ? 'selected' : ''}" data-wi="${weekIdx}" data-mi="${matchIdx}" data-winner="${escapeHtml(m.player2Id)}">${escapeHtml(p2?.name || "?")} ชนะ</button>
+        <button class="btn-winner" data-wi="${weekIdx}" data-mi="${matchIdx}" data-winner="">ล้างผล</button>
+      </div>` : "";
     return `<div class="match-card">
       <div class="match-players">
-        <span class="${p1Win ? 'winner-name' : ''}">${p1?.name || "?"}</span>
+        <span class="${p1Win ? 'winner-name' : ''}">${escapeHtml(p1?.name || "?")}</span>
         <span class="vs">VS</span>
-        <span class="${p2Win ? 'winner-name' : ''}">${p2?.name || "?"}</span>
+        <span class="${p2Win ? 'winner-name' : ''}">${escapeHtml(p2?.name || "?")}</span>
       </div>
-      ${m.winnerId ? `<p class="small-text">ผู้ชนะ: ${archive.players[m.winnerId]?.name}</p>` : `<p class="small-text">ยังไม่ได้แข่ง</p>`}
+      ${m.winnerId ? `<p class="small-text">ผู้ชนะ: ${escapeHtml(archive.players[m.winnerId]?.name || "?")}</p>` : `<p class="small-text">ยังไม่ได้แข่ง</p>`}
+      ${controls}
     </div>`;
   }).join("");
+
+  if (editing) {
+    matchesDiv.querySelectorAll("button[data-wi]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        applyArchiveEdit({
+          [`league/weeks/${btn.dataset.wi}/matches/${btn.dataset.mi}/winnerId`]: btn.dataset.winner || null
+        });
+      });
+    });
+  }
 
   const standings = computeArchiveStandings(archive);
   const table = document.getElementById("adet-standings-table");
@@ -1306,6 +1484,182 @@ document.getElementById("adet-tab-league").addEventListener("click", () => {
   document.getElementById("adet-teams-section").classList.add("hidden");
 });
 document.getElementById("btn-archive-detail-back").addEventListener("click", () => {
+  archiveEditMode = false;
+  if (archivesDirty) {
+    archivesDirty = false;
+    openArchivesList();
+    return;
+  }
   hideAllTopScreens();
   screenArchives.classList.remove("hidden");
+});
+
+// =====================================================================
+// ระบบแอดมิน: เข้าสู่ระบบด้วย Google + แก้ไข/ลบทัวร์นาเมนต์ย้อนหลัง
+// หมายเหตุ: การอนุญาตจริงถูกบังคับที่ Firebase Realtime Database Rules
+// (ฝั่งหน้าเว็บแค่ซ่อน/โชว์ปุ่ม) ดูตัวอย่าง rules ในคำอธิบาย
+// =====================================================================
+const emailKey = (email) => String(email || "").trim().toLowerCase().replace(/\./g, ",");
+
+onAuthStateChanged(auth, async (user) => {
+  currentUser = user;
+  isAdmin = false;
+  isOwner = false;
+  if (user && user.email) {
+    try {
+      const snap = await get(ref(db, `admins/${emailKey(user.email)}`));
+      const role = snap.exists() ? snap.val() : null;
+      isAdmin = !!role;
+      isOwner = role === "owner";
+    } catch (e) {
+      console.error("check admin error:", e);
+    }
+  }
+  if (!isAdmin) archiveEditMode = false;
+  updateAuthUI();
+});
+
+function updateAuthUI() {
+  const loginBtn = document.getElementById("btn-login");
+  const info = document.getElementById("auth-info");
+  loginBtn.classList.toggle("hidden", !!currentUser);
+  info.classList.toggle("hidden", !currentUser);
+  if (currentUser) {
+    const role = isOwner ? " (เจ้าของ)" : (isAdmin ? " (แอดมิน)" : " (ไม่มีสิทธิ์แก้ไข)");
+    document.getElementById("auth-email").textContent = (currentUser.email || "") + role;
+  }
+
+  // รีเฟรชหน้าที่เปิดอยู่ให้ตรงกับสิทธิ์ล่าสุด
+  if (!screenArchives.classList.contains("hidden")) {
+    document.getElementById("archives-search").dispatchEvent(new Event("input"));
+  }
+  if (!screenArchiveDetail.classList.contains("hidden") && currentArchiveData) {
+    renderArchiveDetail(currentArchiveData);
+  }
+  document.getElementById("admin-panel").classList.toggle("hidden", !isOwner);
+  if (isOwner) loadAdminList();
+  if (latestRoom && latestRoom.status === "finished") renderArchiveBox(latestRoom);
+}
+
+document.getElementById("btn-login").addEventListener("click", async () => {
+  try {
+    await signInWithPopup(auth, new GoogleAuthProvider());
+  } catch (e) {
+    console.error("login error:", e);
+    if (e.code === "auth/popup-closed-by-user" || e.code === "auth/cancelled-popup-request") return;
+    if (e.code === "auth/unauthorized-domain") {
+      alert("โดเมนนี้ยังไม่ได้เพิ่มใน Firebase (Authentication > Settings > Authorized domains)");
+    } else {
+      alert("เข้าสู่ระบบไม่สำเร็จ: " + (e.code || e.message));
+    }
+  }
+});
+document.getElementById("btn-logout").addEventListener("click", () => signOut(auth));
+
+// --- ลบ / แก้ไขทัวร์นาเมนต์
+async function deleteArchive(id, name) {
+  if (!isAdmin || !id) return;
+  if (!confirm(`ลบทัวร์นาเมนต์ "${name}" ถาวร?\nกู้คืนไม่ได้นะ`)) return;
+  try {
+    await set(ref(db, `archives/${id}`), null);
+    archivesDirty = false;
+    archiveEditMode = false;
+    await openArchivesList();
+  } catch (e) {
+    console.error("deleteArchive error:", e);
+    alert("ลบไม่สำเร็จ (อาจไม่มีสิทธิ์ หรือเน็ตมีปัญหา)");
+  }
+}
+
+async function applyArchiveEdit(patch) {
+  if (!isAdmin || !currentArchiveId) return;
+  try {
+    await update(ref(db, `archives/${currentArchiveId}`), { ...patch, updatedAt: Date.now() });
+    archivesDirty = true;
+    const snap = await get(ref(db, `archives/${currentArchiveId}`));
+    if (snap.exists()) renderArchiveDetail(snap.val());
+  } catch (e) {
+    console.error("applyArchiveEdit error:", e);
+    alert("แก้ไขไม่สำเร็จ (อาจไม่มีสิทธิ์ หรือเน็ตมีปัญหา)");
+  }
+}
+
+async function archiveRemovePokemon(pid, idx) {
+  const player = currentArchiveData?.players?.[pid];
+  const team = (player?.team || []).slice();
+  const t = team[idx];
+  if (!t) return;
+  if (!confirm(`เอา ${t.displayName} ออกจากทีมของ ${player.name}?`)) return;
+  team.splice(idx, 1);
+  await applyArchiveEdit({ [`players/${pid}/team`]: team.length ? team : null });
+}
+
+async function archiveAddPokemon(pid, listIdx, btn) {
+  const poke = POKEMON_LIST[listIdx];
+  const player = currentArchiveData?.players?.[pid];
+  if (!poke || !player) return;
+  if (btn) btn.disabled = true;
+  const sprite = await fetchSprite(poke);
+  const team = (player.team || []).slice();
+  team.push({ id: poolKeyOf(poke), displayName: poke.displayName, isMega: !!poke.isMega, sprite });
+  await applyArchiveEdit({ [`players/${pid}/team`]: team });
+}
+
+document.getElementById("btn-archive-edit").addEventListener("click", () => {
+  if (!isAdmin || !currentArchiveData) return;
+  archiveEditMode = !archiveEditMode;
+  renderArchiveDetail(currentArchiveData);
+});
+document.getElementById("btn-archive-delete").addEventListener("click", () => {
+  if (currentArchiveData) deleteArchive(currentArchiveId, currentArchiveData.name || "ไม่มีชื่อ");
+});
+document.getElementById("btn-archive-rename").addEventListener("click", () => {
+  const name = document.getElementById("archive-rename-input").value.trim();
+  if (!name) { alert("ชื่อห้ามว่าง"); return; }
+  applyArchiveEdit({ name });
+});
+
+// --- เจ้าของจัดการรายชื่อผู้มีสิทธิ์
+async function loadAdminList() {
+  const listEl = document.getElementById("admin-list");
+  try {
+    const snap = await get(ref(db, "admins"));
+    const val = snap.exists() ? snap.val() : {};
+    listEl.innerHTML = Object.entries(val).map(([key, role]) => `
+      <li>
+        <span>${escapeHtml(key.replace(/,/g, "."))}</span>
+        ${role === "owner"
+          ? '<span class="badge">OWNER</span>'
+          : `<button class="btn-leave-small" data-remove-admin="${escapeHtml(key)}">ลบสิทธิ์</button>`}
+      </li>`).join("") || '<li>ยังไม่มีรายชื่อ</li>';
+    listEl.querySelectorAll("[data-remove-admin]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("ยกเลิกสิทธิ์ของคนนี้?")) return;
+        try {
+          await set(ref(db, `admins/${btn.dataset.removeAdmin}`), null);
+          loadAdminList();
+        } catch (e) {
+          alert("ลบสิทธิ์ไม่สำเร็จ");
+        }
+      });
+    });
+  } catch (e) {
+    console.error("loadAdminList error:", e);
+    listEl.innerHTML = "<li>โหลดรายชื่อไม่สำเร็จ</li>";
+  }
+}
+
+document.getElementById("btn-add-admin").addEventListener("click", async () => {
+  if (!isOwner) return;
+  const input = document.getElementById("admin-email-input");
+  const email = input.value.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert("อีเมลไม่ถูกต้อง"); return; }
+  try {
+    await set(ref(db, `admins/${emailKey(email)}`), true);
+    input.value = "";
+    loadAdminList();
+  } catch (e) {
+    console.error("add admin error:", e);
+    alert("เพิ่มไม่สำเร็จ");
+  }
 });
