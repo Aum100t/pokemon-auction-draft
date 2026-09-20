@@ -38,6 +38,8 @@
     </div>
 
     <div id="home-error" class="error"></div>
+
+    <button class="primary" id="btn-open-archives" style="background:#4dd0e1;">📚 ดูทัวร์นาเมนต์ย้อนหลัง</button>
   </div>
 
   <!-- ห้องรอ (Lobby) -->
@@ -48,14 +50,15 @@
     <ul class="player-list" id="lobby-player-list"></ul>
     <button class="primary" id="btn-start" disabled>รอผู้เล่น... (อย่างน้อย 2 คน)</button>
     <p class="small-text" id="lobby-wait-msg">รอโฮสต์เริ่มเกม...</p>
+    <button class="primary btn-danger" id="btn-leave-lobby">🚪 ออกจากห้อง</button>
   </div>
-
   <!-- ห้องเกม (ระหว่างประมูล) -->
   <div id="screen-game" class="card hidden">
 
     <div class="game-header">
       <span id="turn-indicator" class="turn-indicator">-</span>
       <span class="small-text">ห้อง: <b id="game-room-code"></b></span>
+      <button class="btn-leave-small" id="btn-leave-game">🚪 ออกจากห้อง</button>
     </div>
 
     <div class="my-status">
@@ -111,6 +114,14 @@
   <div id="screen-postgame" class="card hidden">
     <h2 style="text-align:center;margin-bottom:16px;">🏆 การประมูลจบแล้ว!</h2>
 
+    <div id="archive-save-box" class="archive-save-box">
+      <p class="small-text" id="archive-status">ยังไม่ได้บันทึกทัวร์นาเมนต์นี้</p>
+      <div id="archive-save-controls">
+        <input type="text" id="archive-name-input" placeholder="ตั้งชื่อทัวร์นาเมนต์ เช่น 'ดราฟต์รอบที่ 1'" maxlength="40">
+        <button class="primary" id="btn-save-archive">💾 บันทึกทัวร์นาเมนต์ (ให้ทุกคนดูได้)</button>
+      </div>
+    </div>
+
     <div class="section-tabs">
       <button class="section-tab-btn active" id="post-tab-teams">📋 สรุปทีมทั้งหมด</button>
       <button class="section-tab-btn" id="post-tab-league">⚔️ ตารางแข่งขัน</button>
@@ -130,6 +141,39 @@
         <button class="primary btn-danger" id="btn-leave-room">🚪 ออกจากห้อง</button>
       </div>
     </div>
+  </div>
+
+  <!-- คลังทัวร์นาเมนต์: ดูย้อนหลังได้โดยไม่ต้องมีรหัสห้อง ใครก็เข้าดูได้ -->
+  <div id="screen-archives" class="card hidden">
+    <div class="game-header">
+      <h2 style="margin:0;">📚 คลังทัวร์นาเมนต์</h2>
+      <button class="btn-leave-small" id="btn-archives-back">⬅ กลับหน้าแรก</button>
+    </div>
+    <input type="text" id="archives-search" placeholder="🔍 ค้นหาชื่อทัวร์นาเมนต์...">
+    <div id="archives-list"></div>
+  </div>
+
+  <!-- ดูรายละเอียดทัวร์นาเมนต์ที่บันทึกไว้ (read-only) -->
+  <div id="screen-archive-detail" class="card hidden">
+    <div class="game-header">
+      <h2 id="archive-detail-title" style="margin:0;">-</h2>
+      <button class="btn-leave-small" id="btn-archive-detail-back">⬅ กลับ</button>
+    </div>
+    <p class="small-text" id="archive-detail-meta"></p>
+
+    <div class="section-tabs">
+      <button class="section-tab-btn active" id="adet-tab-teams">📋 สรุปทีม</button>
+      <button class="section-tab-btn" id="adet-tab-league">⚔️ ตารางแข่งขัน</button>
+    </div>
+
+    <div id="adet-teams-section">
+      <div class="teams-summary-grid" id="adet-teams-grid"></div>
+    </div>
+    <div id="adet-league-section" class="hidden">
+      <div class="week-tabs" id="adet-week-tabs"></div>
+      <div id="adet-week-matches"></div>
+      <h3 style="margin:20px 0 10px;">📊 ตารางคะแนน</h3>
+      <table class="standings-table" id="adet-standings-table"></table>
     </div>
   </div>
 </div>

@@ -1,2502 +1,331 @@
-// รูปแบบ: id ต้องไม่ซ้ำกัน, apiName คือชื่อที่ใช้ค้นจาก PokeAPI (pokeapi.co)
-// วิธีหาชื่อ Mega: ปกติจะเป็น "ชื่อ-mega" เช่น "gengar-mega"
-// บางตัวมี X/Y เช่น "charizard-mega-x", "charizard-mega-y"
-// เช็คชื่อที่ถูกต้องได้ที่ https://pokeapi.co/api/v2/pokemon/ชื่อ
+// รายชื่อโปเกม่อนสำหรับพูลประมูล
+// - id: ไม่ซ้ำกัน (ใช้เป็น key สำรอง)
+// - apiName: ชื่อที่ใช้ค้นจาก PokeAPI  https://pokeapi.co/api/v2/pokemon/<apiName>
+// - isMega: true = ร่าง Mega (ใช้กรองแท็บ Mega)
+// หมายเหตุ: ร่าง Mega ที่ PokeAPI ไม่มีจริง (เช่น mega-raichu-x) ระบบจะใช้รูปร่างปกติแทนอัตโนมัติ
 export const POKEMON_LIST = [
-  {
-    "id": 1,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 2,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 3,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 4,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 5,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 6,
-    "apiName": "",
-    "displayName": "Poison",
-    "isMega": false
-  },
-  {
-    "id": 7,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 8,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 9,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 10,
-    "apiName": "",
-    "displayName": "Fairy",
-    "isMega": false
-  },
-  {
-    "id": 11,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 12,
-    "apiName": "",
-    "displayName": "Ice",
-    "isMega": false
-  },
-  {
-    "id": 13,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 14,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 15,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 16,
-    "apiName": "",
-    "displayName": "Dark",
-    "isMega": false
-  },
-  {
-    "id": 17,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 18,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 19,
-    "apiName": "",
-    "displayName": "Psychic",
-    "isMega": false
-  },
-  {
-    "id": 20,
-    "apiName": "",
-    "displayName": "Fighting",
-    "isMega": false
-  },
-  {
-    "id": 21,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 22,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 23,
-    "apiName": "",
-    "displayName": "Poison",
-    "isMega": false
-  },
-  {
-    "id": 24,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 25,
-    "apiName": "",
-    "displayName": "Ghost",
-    "isMega": false
-  },
-  {
-    "id": 26,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 27,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 28,
-    "apiName": "",
-    "displayName": "Psychic",
-    "isMega": false
-  },
-  {
-    "id": 29,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 30,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 31,
-    "apiName": "",
-    "displayName": "Fighting",
-    "isMega": false
-  },
-  {
-    "id": 32,
-    "apiName": "",
-    "displayName": "Fighting",
-    "isMega": false
-  },
-  {
-    "id": 33,
-    "apiName": "",
-    "displayName": "Fighting",
-    "isMega": false
-  },
-  {
-    "id": 34,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 35,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 36,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 37,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 38,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 39,
-    "apiName": "",
-    "displayName": "Rock",
-    "isMega": false
-  },
-  {
-    "id": 40,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 41,
-    "apiName": "",
-    "displayName": "Dragon",
-    "isMega": false
-  },
-  {
-    "id": 42,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 43,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 44,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 45,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 46,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 47,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 48,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 49,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 50,
-    "apiName": "",
-    "displayName": "Psychic",
-    "isMega": false
-  },
-  {
-    "id": 51,
-    "apiName": "",
-    "displayName": "Dark",
-    "isMega": false
-  },
-  {
-    "id": 52,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 53,
-    "apiName": "",
-    "displayName": "Poison",
-    "isMega": false
-  },
-  {
-    "id": 54,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 55,
-    "apiName": "",
-    "displayName": "Steel",
-    "isMega": false
-  },
-  {
-    "id": 56,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 57,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 58,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 59,
-    "apiName": "",
-    "displayName": "Steel",
-    "isMega": false
-  },
-  {
-    "id": 60,
-    "apiName": "",
-    "displayName": "Dark",
-    "isMega": false
-  },
-  {
-    "id": 61,
-    "apiName": "",
-    "displayName": "Rock",
-    "isMega": false
-  },
-  {
-    "id": 62,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 63,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 64,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 65,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 66,
-    "apiName": "",
-    "displayName": "Psychic",
-    "isMega": false
-  },
-  {
-    "id": 67,
-    "apiName": "",
-    "displayName": "Dark",
-    "isMega": false
-  },
-  {
-    "id": 68,
-    "apiName": "",
-    "displayName": "Steel",
-    "isMega": false
-  },
-  {
-    "id": 69,
-    "apiName": "",
-    "displayName": "Steel",
-    "isMega": false
-  },
-  {
-    "id": 70,
-    "apiName": "",
-    "displayName": "Fighting",
-    "isMega": false
-  },
-  {
-    "id": 71,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 72,
-    "apiName": "",
-    "displayName": "Poison",
-    "isMega": false
-  },
-  {
-    "id": 73,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 74,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 75,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 76,
-    "apiName": "",
-    "displayName": "Dragon",
-    "isMega": false
-  },
-  {
-    "id": 77,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 78,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 79,
-    "apiName": "",
-    "displayName": "Ghost",
-    "isMega": false
-  },
-  {
-    "id": 80,
-    "apiName": "",
-    "displayName": "Psychic",
-    "isMega": false
-  },
-  {
-    "id": 81,
-    "apiName": "",
-    "displayName": "Dark",
-    "isMega": false
-  },
-  {
-    "id": 82,
-    "apiName": "",
-    "displayName": "Ice",
-    "isMega": false
-  },
-  {
-    "id": 83,
-    "apiName": "",
-    "displayName": "Dragon",
-    "isMega": false
-  },
-  {
-    "id": 84,
-    "apiName": "",
-    "displayName": "Steel",
-    "isMega": false
-  },
-  {
-    "id": 85,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 86,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 87,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 88,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 89,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 90,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 91,
-    "apiName": "",
-    "displayName": "Rock",
-    "isMega": false
-  },
-  {
-    "id": 92,
-    "apiName": "",
-    "displayName": "Rock",
-    "isMega": false
-  },
-  {
-    "id": 93,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 94,
-    "apiName": "",
-    "displayName": "Ghost",
-    "isMega": false
-  },
-  {
-    "id": 95,
-    "apiName": "",
-    "displayName": "Dragon",
-    "isMega": false
-  },
-  {
-    "id": 96,
-    "apiName": "",
-    "displayName": "Fighting",
-    "isMega": false
-  },
-  {
-    "id": 97,
-    "apiName": "",
-    "displayName": "Ground",
-    "isMega": false
-  },
-  {
-    "id": 98,
-    "apiName": "",
-    "displayName": "Poison",
-    "isMega": false
-  },
-  {
-    "id": 99,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 100,
-    "apiName": "",
-    "displayName": "Dark",
-    "isMega": false
-  },
-  {
-    "id": 101,
-    "apiName": "",
-    "displayName": "Ground",
-    "isMega": false
-  },
-  {
-    "id": 102,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 103,
-    "apiName": "",
-    "displayName": "Ice",
-    "isMega": false
-  },
-  {
-    "id": 104,
-    "apiName": "",
-    "displayName": "Ground",
-    "isMega": false
-  },
-  {
-    "id": 105,
-    "apiName": "",
-    "displayName": "Ice",
-    "isMega": false
-  },
-  {
-    "id": 106,
-    "apiName": "",
-    "displayName": "Psychic",
-    "isMega": false
-  },
-  {
-    "id": 107,
-    "apiName": "",
-    "displayName": "Ice",
-    "isMega": false
-  },
-  {
-    "id": 108,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 109,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 110,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 111,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 112,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 113,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 114,
-    "apiName": "",
-    "displayName": "Dark",
-    "isMega": false
-  },
-  {
-    "id": 115,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 116,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 117,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 118,
-    "apiName": "",
-    "displayName": "Psychic",
-    "isMega": false
-  },
-  {
-    "id": 119,
-    "apiName": "",
-    "displayName": "Ground",
-    "isMega": false
-  },
-  {
-    "id": 120,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 121,
-    "apiName": "",
-    "displayName": "Fighting",
-    "isMega": false
-  },
-  {
-    "id": 122,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 123,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 124,
-    "apiName": "",
-    "displayName": "Ground",
-    "isMega": false
-  },
-  {
-    "id": 125,
-    "apiName": "",
-    "displayName": "Dark",
-    "isMega": false
-  },
-  {
-    "id": 126,
-    "apiName": "",
-    "displayName": "Ghost",
-    "isMega": false
-  },
-  {
-    "id": 127,
-    "apiName": "",
-    "displayName": "Poison",
-    "isMega": false
-  },
-  {
-    "id": 128,
-    "apiName": "",
-    "displayName": "Dark",
-    "isMega": false
-  },
-  {
-    "id": 129,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 130,
-    "apiName": "",
-    "displayName": "Psychic",
-    "isMega": false
-  },
-  {
-    "id": 131,
-    "apiName": "",
-    "displayName": "Ice",
-    "isMega": false
-  },
-  {
-    "id": 132,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 133,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 134,
-    "apiName": "",
-    "displayName": "Ghost",
-    "isMega": false
-  },
-  {
-    "id": 135,
-    "apiName": "",
-    "displayName": "Ice",
-    "isMega": false
-  },
-  {
-    "id": 136,
-    "apiName": "",
-    "displayName": "Ground",
-    "isMega": false
-  },
-  {
-    "id": 137,
-    "apiName": "",
-    "displayName": "Ground",
-    "isMega": false
-  },
-  {
-    "id": 138,
-    "apiName": "",
-    "displayName": "Ground",
-    "isMega": false
-  },
-  {
-    "id": 139,
-    "apiName": "",
-    "displayName": "Dark",
-    "isMega": false
-  },
-  {
-    "id": 140,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 141,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 142,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 143,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 144,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 145,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 146,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 147,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 148,
-    "apiName": "",
-    "displayName": "Fairy",
-    "isMega": false
-  },
-  {
-    "id": 149,
-    "apiName": "",
-    "displayName": "Fairy",
-    "isMega": false
-  },
-  {
-    "id": 150,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 151,
-    "apiName": "",
-    "displayName": "Fighting",
-    "isMega": false
-  },
-  {
-    "id": 152,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 153,
-    "apiName": "",
-    "displayName": "Psychic",
-    "isMega": false
-  },
-  {
-    "id": 154,
-    "apiName": "",
-    "displayName": "Steel",
-    "isMega": false
-  },
-  {
-    "id": 155,
-    "apiName": "",
-    "displayName": "Fairy",
-    "isMega": false
-  },
-  {
-    "id": 156,
-    "apiName": "",
-    "displayName": "Fairy",
-    "isMega": false
-  },
-  {
-    "id": 157,
-    "apiName": "",
-    "displayName": "Dark",
-    "isMega": false
-  },
-  {
-    "id": 158,
-    "apiName": "",
-    "displayName": "Rock",
-    "isMega": false
-  },
-  {
-    "id": 159,
-    "apiName": "",
-    "displayName": "Poison",
-    "isMega": false
-  },
-  {
-    "id": 160,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 161,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 162,
-    "apiName": "",
-    "displayName": "Rock",
-    "isMega": false
-  },
-  {
-    "id": 163,
-    "apiName": "",
-    "displayName": "Rock",
-    "isMega": false
-  },
-  {
-    "id": 164,
-    "apiName": "",
-    "displayName": "Fairy",
-    "isMega": false
-  },
-  {
-    "id": 165,
-    "apiName": "",
-    "displayName": "Fighting",
-    "isMega": false
-  },
-  {
-    "id": 166,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 167,
-    "apiName": "",
-    "displayName": "Dragon",
-    "isMega": false
-  },
-  {
-    "id": 168,
-    "apiName": "",
-    "displayName": "Steel",
-    "isMega": false
-  },
-  {
-    "id": 169,
-    "apiName": "",
-    "displayName": "Steel",
-    "isMega": false
-  },
-  {
-    "id": 170,
-    "apiName": "",
-    "displayName": "Ghost",
-    "isMega": false
-  },
-  {
-    "id": 171,
-    "apiName": "",
-    "displayName": "Ghost",
-    "isMega": false
-  },
-  {
-    "id": 172,
-    "apiName": "",
-    "displayName": "Ice",
-    "isMega": false
-  },
-  {
-    "id": 173,
-    "apiName": "",
-    "displayName": "Ice",
-    "isMega": false
-  },
-  {
-    "id": 174,
-    "apiName": "",
-    "displayName": "Flying",
-    "isMega": false
-  },
-  {
-    "id": 175,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 176,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 177,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 178,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 179,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 180,
-    "apiName": "",
-    "displayName": "Fighting",
-    "isMega": false
-  },
-  {
-    "id": 181,
-    "apiName": "",
-    "displayName": "Rock",
-    "isMega": false
-  },
-  {
-    "id": 182,
-    "apiName": "",
-    "displayName": "Poison",
-    "isMega": false
-  },
-  {
-    "id": 183,
-    "apiName": "",
-    "displayName": "Ground",
-    "isMega": false
-  },
-  {
-    "id": 184,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 185,
-    "apiName": "",
-    "displayName": "Poison",
-    "isMega": false
-  },
-  {
-    "id": 186,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 187,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 188,
-    "apiName": "",
-    "displayName": "Fighting",
-    "isMega": false
-  },
-  {
-    "id": 189,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 190,
-    "apiName": "",
-    "displayName": "Ghost",
-    "isMega": false
-  },
-  {
-    "id": 191,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 192,
-    "apiName": "",
-    "displayName": "Dragon",
-    "isMega": false
-  },
-  {
-    "id": 193,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 194,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 195,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 196,
-    "apiName": "",
-    "displayName": "Flying",
-    "isMega": false
-  },
-  {
-    "id": 197,
-    "apiName": "",
-    "displayName": "Dark",
-    "isMega": false
-  },
-  {
-    "id": 198,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 199,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 200,
-    "apiName": "",
-    "displayName": "Ground",
-    "isMega": false
-  },
-  {
-    "id": 201,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 202,
-    "apiName": "",
-    "displayName": "Fighting",
-    "isMega": false
-  },
-  {
-    "id": 203,
-    "apiName": "",
-    "displayName": "Ghost",
-    "isMega": false
-  },
-  {
-    "id": 204,
-    "apiName": "",
-    "displayName": "Psychic",
-    "isMega": false
-  },
-  {
-    "id": 205,
-    "apiName": "",
-    "displayName": "Dark",
-    "isMega": false
-  },
-  {
-    "id": 206,
-    "apiName": "",
-    "displayName": "Steel",
-    "isMega": false
-  },
-  {
-    "id": 207,
-    "apiName": "",
-    "displayName": "Fighting",
-    "isMega": false
-  },
-  {
-    "id": 208,
-    "apiName": "",
-    "displayName": "Ice",
-    "isMega": false
-  },
-  {
-    "id": 209,
-    "apiName": "",
-    "displayName": "Ground",
-    "isMega": false
-  },
-  {
-    "id": 210,
-    "apiName": "",
-    "displayName": "Fairy",
-    "isMega": false
-  },
-  {
-    "id": 211,
-    "apiName": "",
-    "displayName": "Fighting",
-    "isMega": false
-  },
-  {
-    "id": 212,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 213,
-    "apiName": "",
-    "displayName": "Psychic",
-    "isMega": false
-  },
-  {
-    "id": 214,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 215,
-    "apiName": "",
-    "displayName": "Dragon",
-    "isMega": false
-  },
-  {
-    "id": 216,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 217,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 218,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 219,
-    "apiName": "",
-    "displayName": "Fighting",
-    "isMega": false
-  },
-  {
-    "id": 220,
-    "apiName": "",
-    "displayName": "Dark",
-    "isMega": false
-  },
-  {
-    "id": 221,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 222,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 223,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 224,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 225,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 226,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 227,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 228,
-    "apiName": "",
-    "displayName": "Rock",
-    "isMega": false
-  },
-  {
-    "id": 229,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 230,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 231,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 232,
-    "apiName": "",
-    "displayName": "Dark",
-    "isMega": false
-  },
-  {
-    "id": 233,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 234,
-    "apiName": "",
-    "displayName": "Psychic",
-    "isMega": false
-  },
-  {
-    "id": 235,
-    "apiName": "",
-    "displayName": "Fairy",
-    "isMega": false
-  },
-  {
-    "id": 236,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 237,
-    "apiName": "",
-    "displayName": "Steel",
-    "isMega": false
-  },
-  {
-    "id": 238,
-    "apiName": "",
-    "displayName": "Rock",
-    "isMega": false
-  },
-  {
-    "id": 239,
-    "apiName": "",
-    "displayName": "Ghost",
-    "isMega": false
-  },
-  {
-    "id": 240,
-    "apiName": "",
-    "displayName": "Fighting",
-    "isMega": false
-  },
-  {
-    "id": 241,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 242,
-    "apiName": "",
-    "displayName": "Dark",
-    "isMega": false
-  },
-  {
-    "id": 243,
-    "apiName": "",
-    "displayName": "Dragon",
-    "isMega": false
-  },
-  {
-    "id": 244,
-    "apiName": "",
-    "displayName": "Steel",
-    "isMega": false
-  },
-  {
-    "id": 245,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 246,
-    "apiName": "",
-    "displayName": "Steel",
-    "isMega": false
-  },
-  {
-    "id": 247,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 249,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 250,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 251,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 252,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 253,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 254,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 255,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 256,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 257,
-    "apiName": "",
-    "displayName": "Fairy",
-    "isMega": false
-  },
-  {
-    "id": 258,
-    "apiName": "",
-    "displayName": "Psychic",
-    "isMega": false
-  },
-  {
-    "id": 259,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 260,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 261,
-    "apiName": "",
-    "displayName": "Ghost",
-    "isMega": false
-  },
-  {
-    "id": 262,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 263,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 264,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 265,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 266,
-    "apiName": "",
-    "displayName": "Rock",
-    "isMega": false
-  },
-  {
-    "id": 267,
-    "apiName": "",
-    "displayName": "Dragon",
-    "isMega": false
-  },
-  {
-    "id": 268,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 269,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 270,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 271,
-    "apiName": "",
-    "displayName": "Steel",
-    "isMega": false
-  },
-  {
-    "id": 272,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 273,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 274,
-    "apiName": "",
-    "displayName": "Steel",
-    "isMega": false
-  },
-  {
-    "id": 275,
-    "apiName": "",
-    "displayName": "Dark",
-    "isMega": false
-  },
-  {
-    "id": 276,
-    "apiName": "",
-    "displayName": "Rock",
-    "isMega": false
-  },
-  {
-    "id": 277,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 278,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 279,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 280,
-    "apiName": "",
-    "displayName": "Psychic",
-    "isMega": false
-  },
-  {
-    "id": 281,
-    "apiName": "",
-    "displayName": "Dark",
-    "isMega": false
-  },
-  {
-    "id": 282,
-    "apiName": "",
-    "displayName": "Steel",
-    "isMega": false
-  },
-  {
-    "id": 283,
-    "apiName": "",
-    "displayName": "Steel",
-    "isMega": false
-  },
-  {
-    "id": 284,
-    "apiName": "",
-    "displayName": "Fighting",
-    "isMega": false
-  },
-  {
-    "id": 285,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 286,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 287,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 288,
-    "apiName": "",
-    "displayName": "Dragon",
-    "isMega": false
-  },
-  {
-    "id": 289,
-    "apiName": "",
-    "displayName": "Ghost",
-    "isMega": false
-  },
-  {
-    "id": 290,
-    "apiName": "",
-    "displayName": "Psychic",
-    "isMega": false
-  },
-  {
-    "id": 291,
-    "apiName": "",
-    "displayName": "Dark",
-    "isMega": false
-  },
-  {
-    "id": 292,
-    "apiName": "",
-    "displayName": "Dark",
-    "isMega": false
-  },
-  {
-    "id": 293,
-    "apiName": "",
-    "displayName": "Ice",
-    "isMega": false
-  },
-  {
-    "id": 294,
-    "apiName": "",
-    "displayName": "Dragon",
-    "isMega": false
-  },
-  {
-    "id": 295,
-    "apiName": "",
-    "displayName": "Steel",
-    "isMega": false
-  },
-  {
-    "id": 296,
-    "apiName": "",
-    "displayName": "Fighting",
-    "isMega": false
-  },
-  {
-    "id": 297,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 298,
-    "apiName": "",
-    "displayName": "Dragon",
-    "isMega": false
-  },
-  {
-    "id": 299,
-    "apiName": "",
-    "displayName": "Dragon",
-    "isMega": false
-  },
-  {
-    "id": 300,
-    "apiName": "",
-    "displayName": "Fighting",
-    "isMega": false
-  },
-  {
-    "id": 301,
-    "apiName": "",
-    "displayName": "Fighting",
-    "isMega": false
-  },
-  {
-    "id": 302,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 303,
-    "apiName": "",
-    "displayName": "Psychic",
-    "isMega": false
-  },
-  {
-    "id": 304,
-    "apiName": "",
-    "displayName": "Ice",
-    "isMega": false
-  },
-  {
-    "id": 305,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 306,
-    "apiName": "",
-    "displayName": "Ground",
-    "isMega": false
-  },
-  {
-    "id": 307,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 308,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 309,
-    "apiName": "",
-    "displayName": "Dark",
-    "isMega": false
-  },
-  {
-    "id": 310,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 311,
-    "apiName": "",
-    "displayName": "Ghost",
-    "isMega": false
-  },
-  {
-    "id": 312,
-    "apiName": "",
-    "displayName": "Ground",
-    "isMega": false
-  },
-  {
-    "id": 313,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 314,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 315,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 316,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 317,
-    "apiName": "",
-    "displayName": "Fairy",
-    "isMega": false
-  },
-  {
-    "id": 318,
-    "apiName": "",
-    "displayName": "Psychic",
-    "isMega": false
-  },
-  {
-    "id": 319,
-    "apiName": "",
-    "displayName": "Dark",
-    "isMega": false
-  },
-  {
-    "id": 320,
-    "apiName": "",
-    "displayName": "Rock",
-    "isMega": false
-  },
-  {
-    "id": 321,
-    "apiName": "",
-    "displayName": "Poison",
-    "isMega": false
-  },
-  {
-    "id": 322,
-    "apiName": "",
-    "displayName": "Fighting",
-    "isMega": false
-  },
-  {
-    "id": 323,
-    "apiName": "",
-    "displayName": "Fighting",
-    "isMega": false
-  },
-  {
-    "id": 324,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 325,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 326,
-    "apiName": "",
-    "displayName": "Fighting",
-    "isMega": false
-  },
-  {
-    "id": 327,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 328,
-    "apiName": "",
-    "displayName": "Rock",
-    "isMega": false
-  },
-  {
-    "id": 329,
-    "apiName": "",
-    "displayName": "Dragon",
-    "isMega": false
-  },
-  {
-    "id": 331,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 332,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 333,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 334,
-    "apiName": "",
-    "displayName": "Ice",
-    "isMega": false
-  },
-  {
-    "id": 335,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 336,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 337,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 338,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 339,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 340,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 341,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 342,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 343,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 344,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 345,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 346,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 347,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 348,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 349,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 350,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 351,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 352,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 353,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 354,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 355,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 356,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 357,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 358,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 359,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 360,
-    "apiName": "",
-    "displayName": "Bug",
-    "isMega": false
-  },
-  {
-    "id": 361,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 362,
-    "apiName": "",
-    "displayName": "Fire",
-    "isMega": false
-  },
-  {
-    "id": 363,
-    "apiName": "",
-    "displayName": "Fairy",
-    "isMega": false
-  },
-  {
-    "id": 364,
-    "apiName": "",
-    "displayName": "Fairy",
-    "isMega": false
-  },
-  {
-    "id": 365,
-    "apiName": "",
-    "displayName": "Fairy",
-    "isMega": false
-  },
-  {
-    "id": 366,
-    "apiName": "",
-    "displayName": "Fairy",
-    "isMega": false
-  },
-  {
-    "id": 367,
-    "apiName": "",
-    "displayName": "Fairy",
-    "isMega": false
-  },
-  {
-    "id": 368,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 369,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 370,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 371,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 372,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 373,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 374,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 375,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 376,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 377,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 378,
-    "apiName": "",
-    "displayName": "Psychic",
-    "isMega": false
-  },
-  {
-    "id": 379,
-    "apiName": "",
-    "displayName": "Psychic",
-    "isMega": false
-  },
-  {
-    "id": 380,
-    "apiName": "",
-    "displayName": "Steel",
-    "isMega": false
-  },
-  {
-    "id": 381,
-    "apiName": "",
-    "displayName": "Steel",
-    "isMega": false
-  },
-  {
-    "id": 382,
-    "apiName": "",
-    "displayName": "Ghost",
-    "isMega": false
-  },
-  {
-    "id": 383,
-    "apiName": "",
-    "displayName": "Ghost",
-    "isMega": false
-  },
-  {
-    "id": 384,
-    "apiName": "",
-    "displayName": "Ghost",
-    "isMega": false
-  },
-  {
-    "id": 385,
-    "apiName": "",
-    "displayName": "Ghost",
-    "isMega": false
-  },
-  {
-    "id": 386,
-    "apiName": "",
-    "displayName": "Rock",
-    "isMega": false
-  },
-  {
-    "id": 387,
-    "apiName": "",
-    "displayName": "Rock",
-    "isMega": false
-  },
-  {
-    "id": 388,
-    "apiName": "",
-    "displayName": "Rock",
-    "isMega": false
-  },
-  {
-    "id": 389,
-    "apiName": "",
-    "displayName": "Rock",
-    "isMega": false
-  },
-  {
-    "id": 390,
-    "apiName": "",
-    "displayName": "Rock",
-    "isMega": false
-  },
-  {
-    "id": 391,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 392,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 393,
-    "apiName": "",
-    "displayName": "Fairy",
-    "isMega": false
-  },
-  {
-    "id": 394,
-    "apiName": "",
-    "displayName": "Fairy",
-    "isMega": false
-  },
-  {
-    "id": 395,
-    "apiName": "",
-    "displayName": "Fairy",
-    "isMega": false
-  },
-  {
-    "id": 396,
-    "apiName": "",
-    "displayName": "Fairy",
-    "isMega": false
-  },
-  {
-    "id": 397,
-    "apiName": "",
-    "displayName": "Fairy",
-    "isMega": false
-  },
-  {
-    "id": 398,
-    "apiName": "",
-    "displayName": "Fairy",
-    "isMega": false
-  },
-  {
-    "id": 399,
-    "apiName": "",
-    "displayName": "Fairy",
-    "isMega": false
-  },
-  {
-    "id": 400,
-    "apiName": "",
-    "displayName": "Fairy",
-    "isMega": false
-  },
-  {
-    "id": 401,
-    "apiName": "",
-    "displayName": "Fairy",
-    "isMega": false
-  },
-  {
-    "id": 402,
-    "apiName": "",
-    "displayName": "Psychic",
-    "isMega": false
-  },
-  {
-    "id": 403,
-    "apiName": "",
-    "displayName": "Psychic",
-    "isMega": false
-  },
-  {
-    "id": 404,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 405,
-    "apiName": "",
-    "displayName": "Electric",
-    "isMega": false
-  },
-  {
-    "id": 406,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 407,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 408,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 409,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 410,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 411,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 412,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 413,
-    "apiName": "",
-    "displayName": "Normal",
-    "isMega": false
-  },
-  {
-    "id": 414,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 415,
-    "apiName": "",
-    "displayName": "Water",
-    "isMega": false
-  },
-  {
-    "id": 416,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 417,
-    "apiName": "",
-    "displayName": "Grass",
-    "isMega": false
-  },
-  {
-    "id": 419,
-    "apiName": "",
-    "displayName": "List of Pokémon by availability\nAvailable in every game • Version-exclusive • Unobtainable in later games\nMutually exclusive • Permanently missable • Unobtainable Shiny\nPE (See more) • SwSh • BDSP • LA (See more) • SV • ZA",
-    "isMega": false
-  }
-]
+  { id: 1, apiName: "abomasnow", displayName: "Abomasnow", isMega: false },
+  { id: 2, apiName: "absol", displayName: "Absol", isMega: false },
+  { id: 3, apiName: "aegislash", displayName: "Aegislash", isMega: false },
+  { id: 4, apiName: "aerodactyl", displayName: "Aerodactyl", isMega: false },
+  { id: 5, apiName: "aggron", displayName: "Aggron", isMega: false },
+  { id: 6, apiName: "alakazam", displayName: "Alakazam", isMega: false },
+  { id: 7, apiName: "alcremie", displayName: "Alcremie", isMega: false },
+  { id: 8, apiName: "altaria", displayName: "Altaria", isMega: false },
+  { id: 9, apiName: "ampharos", displayName: "Ampharos", isMega: false },
+  { id: 10, apiName: "annihilape", displayName: "Annihilape", isMega: false },
+  { id: 11, apiName: "appletun", displayName: "Appletun", isMega: false },
+  { id: 12, apiName: "araquanid", displayName: "Araquanid", isMega: false },
+  { id: 13, apiName: "arbok", displayName: "Arbok", isMega: false },
+  { id: 14, apiName: "arboliva", displayName: "Arboliva", isMega: false },
+  { id: 15, apiName: "arcanine", displayName: "Arcanine", isMega: false },
+  { id: 16, apiName: "archaludon", displayName: "Archaludon", isMega: false },
+  { id: 17, apiName: "ariados", displayName: "Ariados", isMega: false },
+  { id: 18, apiName: "armarouge", displayName: "Armarouge", isMega: false },
+  { id: 19, apiName: "aromatisse", displayName: "Aromatisse", isMega: false },
+  { id: 20, apiName: "audino", displayName: "Audino", isMega: false },
+  { id: 21, apiName: "aurorus", displayName: "Aurorus", isMega: false },
+  { id: 22, apiName: "avalugg", displayName: "Avalugg", isMega: false },
+  { id: 23, apiName: "azumarill", displayName: "Azumarill", isMega: false },
+  { id: 24, apiName: "banette", displayName: "Banette", isMega: false },
+  { id: 25, apiName: "barbaracle", displayName: "Barbaracle", isMega: false },
+  { id: 26, apiName: "basculegion", displayName: "Basculegion", isMega: false },
+  { id: 27, apiName: "bastiodon", displayName: "Bastiodon", isMega: false },
+  { id: 28, apiName: "baxcalibur", displayName: "Baxcalibur", isMega: false },
+  { id: 29, apiName: "beartic", displayName: "Beartic", isMega: false },
+  { id: 30, apiName: "beedrill", displayName: "Beedrill", isMega: false },
+  { id: 31, apiName: "bellibolt", displayName: "Bellibolt", isMega: false },
+  { id: 32, apiName: "blastoise", displayName: "Blastoise", isMega: false },
+  { id: 33, apiName: "blaziken", displayName: "Blaziken", isMega: false },
+  { id: 34, apiName: "camerupt", displayName: "Camerupt", isMega: false },
+  { id: 35, apiName: "castform", displayName: "Castform", isMega: false },
+  { id: 36, apiName: "ceruledge", displayName: "Ceruledge", isMega: false },
+  { id: 37, apiName: "chandelure", displayName: "Chandelure", isMega: false },
+  { id: 38, apiName: "charizard", displayName: "Charizard", isMega: false },
+  { id: 39, apiName: "chesnaught", displayName: "Chesnaught", isMega: false },
+  { id: 40, apiName: "chimecho", displayName: "Chimecho", isMega: false },
+  { id: 41, apiName: "cinderace", displayName: "Cinderace", isMega: false },
+  { id: 42, apiName: "clawitzer", displayName: "Clawitzer", isMega: false },
+  { id: 43, apiName: "clefable", displayName: "Clefable", isMega: false },
+  { id: 44, apiName: "cofagrigus", displayName: "Cofagrigus", isMega: false },
+  { id: 45, apiName: "conkeldurr", displayName: "Conkeldurr", isMega: false },
+  { id: 46, apiName: "corviknight", displayName: "Corviknight", isMega: false },
+  { id: 47, apiName: "crabominable", displayName: "Crabominable", isMega: false },
+  { id: 48, apiName: "decidueye", displayName: "Decidueye", isMega: false },
+  { id: 49, apiName: "dedenne", displayName: "Dedenne", isMega: false },
+  { id: 50, apiName: "delphox", displayName: "Delphox", isMega: false },
+  { id: 51, apiName: "diggersby", displayName: "Diggersby", isMega: false },
+  { id: 52, apiName: "ditto", displayName: "Ditto", isMega: false },
+  { id: 53, apiName: "dragalge", displayName: "Dragalge", isMega: false },
+  { id: 54, apiName: "dragapult", displayName: "Dragapult", isMega: false },
+  { id: 55, apiName: "dragonite", displayName: "Dragonite", isMega: false },
+  { id: 56, apiName: "drampa", displayName: "Drampa", isMega: false },
+  { id: 57, apiName: "eelektross", displayName: "Eelektross", isMega: false },
+  { id: 58, apiName: "emboar", displayName: "Emboar", isMega: false },
+  { id: 59, apiName: "emolga", displayName: "Emolga", isMega: false },
+  { id: 60, apiName: "empoleon", displayName: "Empoleon", isMega: false },
+  { id: 61, apiName: "espathra", displayName: "Espathra", isMega: false },
+  { id: 62, apiName: "espeon", displayName: "Espeon", isMega: false },
+  { id: 63, apiName: "excadrill", displayName: "Excadrill", isMega: false },
+  { id: 64, apiName: "falinks", displayName: "Falinks", isMega: false },
+  { id: 65, apiName: "rotom-fan", displayName: "Fan Rotom", isMega: false },
+  { id: 66, apiName: "farfetchd", displayName: "Farfetch'd", isMega: false },
+  { id: 67, apiName: "farigiraf", displayName: "Farigiraf", isMega: false },
+  { id: 68, apiName: "feraligatr", displayName: "Feraligatr", isMega: false },
+  { id: 69, apiName: "fighting", displayName: "Fighting", isMega: false },
+  { id: 70, apiName: "flapple", displayName: "Flapple", isMega: false },
+  { id: 71, apiName: "flareon", displayName: "Flareon", isMega: false },
+  { id: 72, apiName: "floette", displayName: "Floette", isMega: false },
+  { id: 73, apiName: "florges", displayName: "Florges", isMega: false },
+  { id: 74, apiName: "forretress", displayName: "Forretress", isMega: false },
+  { id: 75, apiName: "froslass", displayName: "Froslass", isMega: false },
+  { id: 76, apiName: "rotom-frost", displayName: "Frost Rotom", isMega: false },
+  { id: 77, apiName: "furfrou", displayName: "Furfrou", isMega: false },
+  { id: 78, apiName: "gallade", displayName: "Gallade", isMega: false },
+  { id: 79, apiName: "garbodor", displayName: "Garbodor", isMega: false },
+  { id: 80, apiName: "garchomp", displayName: "Garchomp", isMega: false },
+  { id: 81, apiName: "gardevoir", displayName: "Gardevoir", isMega: false },
+  { id: 82, apiName: "garganacl", displayName: "Garganacl", isMega: false },
+  { id: 83, apiName: "gengar", displayName: "Gengar", isMega: false },
+  { id: 84, apiName: "gholdengo", displayName: "Gholdengo", isMega: false },
+  { id: 85, apiName: "glaceon", displayName: "Glaceon", isMega: false },
+  { id: 86, apiName: "glalie", displayName: "Glalie", isMega: false },
+  { id: 87, apiName: "glimmora", displayName: "Glimmora", isMega: false },
+  { id: 88, apiName: "gliscor", displayName: "Gliscor", isMega: false },
+  { id: 89, apiName: "gogoat", displayName: "Gogoat", isMega: false },
+  { id: 90, apiName: "golisopod", displayName: "Golisopod", isMega: false },
+  { id: 91, apiName: "golurk", displayName: "Golurk", isMega: false },
+  { id: 92, apiName: "goodra", displayName: "Goodra", isMega: false },
+  { id: 93, apiName: "gourgeist", displayName: "Gourgeist", isMega: false },
+  { id: 94, apiName: "grapploct", displayName: "Grapploct", isMega: false },
+  { id: 95, apiName: "greninja", displayName: "Greninja", isMega: false },
+  { id: 96, apiName: "grimmsnarl", displayName: "Grimmsnarl", isMega: false },
+  { id: 97, apiName: "gyarados", displayName: "Gyarados", isMega: false },
+  { id: 98, apiName: "hatterene", displayName: "Hatterene", isMega: false },
+  { id: 99, apiName: "hawlucha", displayName: "Hawlucha", isMega: false },
+  { id: 100, apiName: "rotom-heat", displayName: "Heat Rotom", isMega: false },
+  { id: 101, apiName: "heliolisk", displayName: "Heliolisk", isMega: false },
+  { id: 102, apiName: "heracross", displayName: "Heracross", isMega: false },
+  { id: 103, apiName: "hippowdon", displayName: "Hippowdon", isMega: false },
+  { id: 104, apiName: "houndoom", displayName: "Houndoom", isMega: false },
+  { id: 105, apiName: "houndstone", displayName: "Houndstone", isMega: false },
+  { id: 106, apiName: "hydrapple", displayName: "Hydrapple", isMega: false },
+  { id: 107, apiName: "hydreigon", displayName: "Hydreigon", isMega: false },
+  { id: 108, apiName: "incineroar", displayName: "Incineroar", isMega: false },
+  { id: 109, apiName: "indeedee", displayName: "Indeedee", isMega: false },
+  { id: 110, apiName: "indeedee-f", displayName: "Indeedee Female", isMega: false },
+  { id: 111, apiName: "infernape", displayName: "Infernape", isMega: false },
+  { id: 112, apiName: "inteleon", displayName: "Inteleon", isMega: false },
+  { id: 113, apiName: "jolteon", displayName: "Jolteon", isMega: false },
+  { id: 114, apiName: "kangaskhan", displayName: "Kangaskhan", isMega: false },
+  { id: 115, apiName: "kingambit", displayName: "Kingambit", isMega: false },
+  { id: 116, apiName: "kleavor", displayName: "Kleavor", isMega: false },
+  { id: 117, apiName: "klefki", displayName: "Klefki", isMega: false },
+  { id: 118, apiName: "kommo-o", displayName: "Kommo-o", isMega: false },
+  { id: 119, apiName: "krookodile", displayName: "Krookodile", isMega: false },
+  { id: 120, apiName: "leafeon", displayName: "Leafeon", isMega: false },
+  { id: 121, apiName: "learnset", displayName: "Learnset", isMega: false },
+  { id: 122, apiName: "liepard", displayName: "Liepard", isMega: false },
+  { id: 123, apiName: "lopunny", displayName: "Lopunny", isMega: false },
+  { id: 124, apiName: "lucario", displayName: "Lucario", isMega: false },
+  { id: 125, apiName: "luxray", displayName: "Luxray", isMega: false },
+  { id: 126, apiName: "lycanroc", displayName: "Lycanroc", isMega: false },
+  { id: 127, apiName: "lycanroc-dusk", displayName: "Lycanroc Dusk Form", isMega: false },
+  { id: 128, apiName: "lycanroc-midday", displayName: "Lycanroc Midday Form", isMega: false },
+  { id: 129, apiName: "lycanroc-midnight", displayName: "Lycanroc Midnight Form", isMega: false },
+  { id: 130, apiName: "mabosstiff", displayName: "Mabosstiff", isMega: false },
+  { id: 131, apiName: "machamp", displayName: "Machamp", isMega: false },
+  { id: 132, apiName: "malamar", displayName: "Malamar", isMega: false },
+  { id: 133, apiName: "mamoswine", displayName: "Mamoswine", isMega: false },
+  { id: 134, apiName: "manectric", displayName: "Manectric", isMega: false },
+  { id: 135, apiName: "maushold", displayName: "Maushold", isMega: false },
+  { id: 136, apiName: "mawile", displayName: "Mawile", isMega: false },
+  { id: 137, apiName: "medicham", displayName: "Medicham", isMega: false },
+  { id: 138, apiName: "meganium", displayName: "Meganium", isMega: false },
+  { id: 139, apiName: "meowscarada", displayName: "Meowscarada", isMega: false },
+  { id: 140, apiName: "meowstic", displayName: "Meowstic", isMega: false },
+  { id: 141, apiName: "meowstic-f", displayName: "Meowstic Female", isMega: false },
+  { id: 142, apiName: "metagross", displayName: "Metagross", isMega: false },
+  { id: 143, apiName: "milotic", displayName: "Milotic", isMega: false },
+  { id: 144, apiName: "mimikyu", displayName: "Mimikyu", isMega: false },
+  { id: 145, apiName: "morpeko", displayName: "Morpeko", isMega: false },
+  { id: 146, apiName: "rotom-mow", displayName: "Mow Rotom", isMega: false },
+  { id: 147, apiName: "mr-mime", displayName: "Mr. Mime", isMega: false },
+  { id: 148, apiName: "mr-rime", displayName: "Mr. Rime", isMega: false },
+  { id: 149, apiName: "mudsdale", displayName: "Mudsdale", isMega: false },
+  { id: 150, apiName: "musharna", displayName: "Musharna", isMega: false },
+  { id: 151, apiName: "ninetales", displayName: "Ninetales", isMega: false },
+  { id: 152, apiName: "noivern", displayName: "Noivern", isMega: false },
+  { id: 153, apiName: "oranguru", displayName: "Oranguru", isMega: false },
+  { id: 154, apiName: "orthworm", displayName: "Orthworm", isMega: false },
+  { id: 155, apiName: "overqwil", displayName: "Overqwil", isMega: false },
+  { id: 156, apiName: "palafin", displayName: "Palafin", isMega: false },
+  { id: 157, apiName: "pangoro", displayName: "Pangoro", isMega: false },
+  { id: 158, apiName: "passimian", displayName: "Passimian", isMega: false },
+  { id: 159, apiName: "pawmot", displayName: "Pawmot", isMega: false },
+  { id: 160, apiName: "pelipper", displayName: "Pelipper", isMega: false },
+  { id: 161, apiName: "perrserker", displayName: "Perrserker", isMega: false },
+  { id: 162, apiName: "persian", displayName: "Persian", isMega: false },
+  { id: 163, apiName: "pidgeot", displayName: "Pidgeot", isMega: false },
+  { id: 164, apiName: "pikachu", displayName: "Pikachu", isMega: false },
+  { id: 165, apiName: "pincurchin", displayName: "Pincurchin", isMega: false },
+  { id: 166, apiName: "pinsir", displayName: "Pinsir", isMega: false },
+  { id: 167, apiName: "politoed", displayName: "Politoed", isMega: false },
+  { id: 168, apiName: "polteageist", displayName: "Polteageist", isMega: false },
+  { id: 169, apiName: "primarina", displayName: "Primarina", isMega: false },
+  { id: 170, apiName: "pyroar", displayName: "Pyroar", isMega: false },
+  { id: 171, apiName: "quaquaval", displayName: "Quaquaval", isMega: false },
+  { id: 172, apiName: "qwilfish", displayName: "Qwilfish", isMega: false },
+  { id: 173, apiName: "raichu", displayName: "Raichu", isMega: false },
+  { id: 174, apiName: "rampardos", displayName: "Rampardos", isMega: false },
+  { id: 175, apiName: "reuniclus", displayName: "Reuniclus", isMega: false },
+  { id: 176, apiName: "rhyperior", displayName: "Rhyperior", isMega: false },
+  { id: 177, apiName: "rillaboom", displayName: "Rillaboom", isMega: false },
+  { id: 178, apiName: "roserade", displayName: "Roserade", isMega: false },
+  { id: 179, apiName: "rotom", displayName: "Rotom", isMega: false },
+  { id: 180, apiName: "runerigus", displayName: "Runerigus", isMega: false },
+  { id: 181, apiName: "sableye", displayName: "Sableye", isMega: false },
+  { id: 182, apiName: "salamence", displayName: "Salamence", isMega: false },
+  { id: 183, apiName: "salazzle", displayName: "Salazzle", isMega: false },
+  { id: 184, apiName: "samurott", displayName: "Samurott", isMega: false },
+  { id: 185, apiName: "sandaconda", displayName: "Sandaconda", isMega: false },
+  { id: 186, apiName: "sceptile", displayName: "Sceptile", isMega: false },
+  { id: 187, apiName: "scizor", displayName: "Scizor", isMega: false },
+  { id: 188, apiName: "scolipede", displayName: "Scolipede", isMega: false },
+  { id: 189, apiName: "scovillain", displayName: "Scovillain", isMega: false },
+  { id: 190, apiName: "scrafty", displayName: "Scrafty", isMega: false },
+  { id: 191, apiName: "serperior", displayName: "Serperior", isMega: false },
+  { id: 192, apiName: "sharpedo", displayName: "Sharpedo", isMega: false },
+  { id: 193, apiName: "simipour", displayName: "Simipour", isMega: false },
+  { id: 194, apiName: "simisage", displayName: "Simisage", isMega: false },
+  { id: 195, apiName: "simisear", displayName: "Simisear", isMega: false },
+  { id: 196, apiName: "sinistcha", displayName: "Sinistcha", isMega: false },
+  { id: 197, apiName: "sirfetchd", displayName: "Sirfetch'd", isMega: false },
+  { id: 198, apiName: "skarmory", displayName: "Skarmory", isMega: false },
+  { id: 199, apiName: "skeledirge", displayName: "Skeledirge", isMega: false },
+  { id: 200, apiName: "slowbro", displayName: "Slowbro", isMega: false },
+  { id: 201, apiName: "slowking", displayName: "Slowking", isMega: false },
+  { id: 202, apiName: "slurpuff", displayName: "Slurpuff", isMega: false },
+  { id: 203, apiName: "sneasler", displayName: "Sneasler", isMega: false },
+  { id: 204, apiName: "snorlax", displayName: "Snorlax", isMega: false },
+  { id: 205, apiName: "spiritomb", displayName: "Spiritomb", isMega: false },
+  { id: 206, apiName: "squawkabilly", displayName: "Squawkabilly", isMega: false },
+  { id: 207, apiName: "staraptor", displayName: "Staraptor", isMega: false },
+  { id: 208, apiName: "starmie", displayName: "Starmie", isMega: false },
+  { id: 209, apiName: "steelix", displayName: "Steelix", isMega: false },
+  { id: 210, apiName: "stunfisk", displayName: "Stunfisk", isMega: false },
+  { id: 211, apiName: "swalot", displayName: "Swalot", isMega: false },
+  { id: 212, apiName: "swampert", displayName: "Swampert", isMega: false },
+  { id: 213, apiName: "sylveon", displayName: "Sylveon", isMega: false },
+  { id: 214, apiName: "talonflame", displayName: "Talonflame", isMega: false },
+  { id: 215, apiName: "tauros", displayName: "Tauros", isMega: false },
+  { id: 216, apiName: "thievul", displayName: "Thievul", isMega: false },
+  { id: 217, apiName: "tinkaton", displayName: "Tinkaton", isMega: false },
+  { id: 218, apiName: "torkoal", displayName: "Torkoal", isMega: false },
+  { id: 219, apiName: "torterra", displayName: "Torterra", isMega: false },
+  { id: 220, apiName: "toucannon", displayName: "Toucannon", isMega: false },
+  { id: 221, apiName: "toxapex", displayName: "Toxapex", isMega: false },
+  { id: 222, apiName: "toxicroak", displayName: "Toxicroak", isMega: false },
+  { id: 223, apiName: "toxtricity", displayName: "Toxtricity", isMega: false },
+  { id: 224, apiName: "trevenant", displayName: "Trevenant", isMega: false },
+  { id: 225, apiName: "tsareena", displayName: "Tsareena", isMega: false },
+  { id: 226, apiName: "typhlosion", displayName: "Typhlosion", isMega: false },
+  { id: 227, apiName: "tyranitar", displayName: "Tyranitar", isMega: false },
+  { id: 228, apiName: "tyrantrum", displayName: "Tyrantrum", isMega: false },
+  { id: 229, apiName: "umbreon", displayName: "Umbreon", isMega: false },
+  { id: 230, apiName: "vanilluxe", displayName: "Vanilluxe", isMega: false },
+  { id: 231, apiName: "vaporeon", displayName: "Vaporeon", isMega: false },
+  { id: 232, apiName: "venusaur", displayName: "Venusaur", isMega: false },
+  { id: 233, apiName: "victreebel", displayName: "Victreebel", isMega: false },
+  { id: 234, apiName: "vileplume", displayName: "Vileplume", isMega: false },
+  { id: 235, apiName: "vivillon", displayName: "Vivillon", isMega: false },
+  { id: 236, apiName: "volcarona", displayName: "Volcarona", isMega: false },
+  { id: 237, apiName: "rotom-wash", displayName: "Wash Rotom", isMega: false },
+  { id: 238, apiName: "watchog", displayName: "Watchog", isMega: false },
+  { id: 239, apiName: "weavile", displayName: "Weavile", isMega: false },
+  { id: 240, apiName: "whimsicott", displayName: "Whimsicott", isMega: false },
+  { id: 241, apiName: "wigglytuff", displayName: "Wigglytuff", isMega: false },
+  { id: 242, apiName: "wyrdeer", displayName: "Wyrdeer", isMega: false },
+  { id: 243, apiName: "zoroark", displayName: "Zoroark", isMega: false },
+  { id: 244, apiName: "mega-abomasnow", displayName: "Mega Abomasnow", isMega: true },
+  { id: 245, apiName: "mega-absol", displayName: "Mega Absol", isMega: true },
+  { id: 246, apiName: "mega-absol-z", displayName: "Mega Absol Z", isMega: true },
+  { id: 247, apiName: "mega-aerodactyl", displayName: "Mega Aerodactyl", isMega: true },
+  { id: 248, apiName: "mega-aggron", displayName: "Mega Aggron", isMega: true },
+  { id: 249, apiName: "mega-alakazam", displayName: "Mega Alakazam", isMega: true },
+  { id: 250, apiName: "mega-altaria", displayName: "Mega Altaria", isMega: true },
+  { id: 251, apiName: "mega-ampharos", displayName: "Mega Ampharos", isMega: true },
+  { id: 252, apiName: "mega-audino", displayName: "Mega Audino", isMega: true },
+  { id: 253, apiName: "mega-banette", displayName: "Mega Banette", isMega: true },
+  { id: 254, apiName: "mega-barbaracle", displayName: "Mega Barbaracle", isMega: true },
+  { id: 255, apiName: "mega-baxcalibur", displayName: "Mega Baxcalibur", isMega: true },
+  { id: 256, apiName: "mega-beedrill", displayName: "Mega Beedrill", isMega: true },
+  { id: 257, apiName: "mega-blastoise", displayName: "Mega Blastoise", isMega: true },
+  { id: 258, apiName: "mega-blaziken", displayName: "Mega Blaziken", isMega: true },
+  { id: 259, apiName: "mega-camerupt", displayName: "Mega Camerupt", isMega: true },
+  { id: 260, apiName: "mega-chandelure", displayName: "Mega Chandelure", isMega: true },
+  { id: 261, apiName: "mega-charizard-x", displayName: "Mega Charizard X", isMega: true },
+  { id: 262, apiName: "mega-charizard-y", displayName: "Mega Charizard Y", isMega: true },
+  { id: 263, apiName: "mega-chesnaught", displayName: "Mega Chesnaught", isMega: true },
+  { id: 264, apiName: "mega-chimecho", displayName: "Mega Chimecho", isMega: true },
+  { id: 265, apiName: "mega-clefable", displayName: "Mega Clefable", isMega: true },
+  { id: 266, apiName: "mega-crabominable", displayName: "Mega Crabominable", isMega: true },
+  { id: 267, apiName: "mega-delphox", displayName: "Mega Delphox", isMega: true },
+  { id: 268, apiName: "mega-dragalge", displayName: "Mega Dragalge", isMega: true },
+  { id: 269, apiName: "mega-dragonite", displayName: "Mega Dragonite", isMega: true },
+  { id: 270, apiName: "mega-drampa", displayName: "Mega Drampa", isMega: true },
+  { id: 271, apiName: "mega-eelektross", displayName: "Mega Eelektross", isMega: true },
+  { id: 272, apiName: "mega-emboar", displayName: "Mega Emboar", isMega: true },
+  { id: 273, apiName: "mega-excadrill", displayName: "Mega Excadrill", isMega: true },
+  { id: 274, apiName: "mega-falinks", displayName: "Mega Falinks", isMega: true },
+  { id: 275, apiName: "mega-feraligatr", displayName: "Mega Feraligatr", isMega: true },
+  { id: 276, apiName: "mega-floette", displayName: "Mega Floette", isMega: true },
+  { id: 277, apiName: "mega-froslass", displayName: "Mega Froslass", isMega: true },
+  { id: 278, apiName: "mega-gallade", displayName: "Mega Gallade", isMega: true },
+  { id: 279, apiName: "mega-garchomp", displayName: "Mega Garchomp", isMega: true },
+  { id: 280, apiName: "mega-garchomp-z", displayName: "Mega Garchomp Z", isMega: true },
+  { id: 281, apiName: "mega-gardevoir", displayName: "Mega Gardevoir", isMega: true },
+  { id: 282, apiName: "mega-gengar", displayName: "Mega Gengar", isMega: true },
+  { id: 283, apiName: "mega-glalie", displayName: "Mega Glalie", isMega: true },
+  { id: 284, apiName: "mega-glimmora", displayName: "Mega Glimmora", isMega: true },
+  { id: 285, apiName: "mega-golisopod", displayName: "Mega Golisopod", isMega: true },
+  { id: 286, apiName: "mega-golurk", displayName: "Mega Golurk", isMega: true },
+  { id: 287, apiName: "mega-greninja", displayName: "Mega Greninja", isMega: true },
+  { id: 288, apiName: "mega-gyarados", displayName: "Mega Gyarados", isMega: true },
+  { id: 289, apiName: "mega-hawlucha", displayName: "Mega Hawlucha", isMega: true },
+  { id: 290, apiName: "mega-heracross", displayName: "Mega Heracross", isMega: true },
+  { id: 291, apiName: "mega-houndoom", displayName: "Mega Houndoom", isMega: true },
+  { id: 292, apiName: "mega-kangaskhan", displayName: "Mega Kangaskhan", isMega: true },
+  { id: 293, apiName: "mega-lopunny", displayName: "Mega Lopunny", isMega: true },
+  { id: 294, apiName: "mega-lucario", displayName: "Mega Lucario", isMega: true },
+  { id: 295, apiName: "mega-lucario-z", displayName: "Mega Lucario Z", isMega: true },
+  { id: 296, apiName: "mega-malamar", displayName: "Mega Malamar", isMega: true },
+  { id: 297, apiName: "mega-manectric", displayName: "Mega Manectric", isMega: true },
+  { id: 298, apiName: "mega-mawile", displayName: "Mega Mawile", isMega: true },
+  { id: 299, apiName: "mega-medicham", displayName: "Mega Medicham", isMega: true },
+  { id: 300, apiName: "mega-meganium", displayName: "Mega Meganium", isMega: true },
+  { id: 301, apiName: "mega-meowstic", displayName: "Mega Meowstic", isMega: true },
+  { id: 302, apiName: "mega-metagross", displayName: "Mega Metagross", isMega: true },
+  { id: 303, apiName: "mega-pidgeot", displayName: "Mega Pidgeot", isMega: true },
+  { id: 304, apiName: "mega-pinsir", displayName: "Mega Pinsir", isMega: true },
+  { id: 305, apiName: "mega-pyroar", displayName: "Mega Pyroar", isMega: true },
+  { id: 306, apiName: "mega-raichu-x", displayName: "Mega Raichu X", isMega: true },
+  { id: 307, apiName: "mega-raichu-y", displayName: "Mega Raichu Y", isMega: true },
+  { id: 308, apiName: "mega-sableye", displayName: "Mega Sableye", isMega: true },
+  { id: 309, apiName: "mega-salamence", displayName: "Mega Salamence", isMega: true },
+  { id: 310, apiName: "mega-sceptile", displayName: "Mega Sceptile", isMega: true },
+  { id: 311, apiName: "mega-scizor", displayName: "Mega Scizor", isMega: true },
+  { id: 312, apiName: "mega-scolipede", displayName: "Mega Scolipede", isMega: true },
+  { id: 313, apiName: "mega-scovillain", displayName: "Mega Scovillain", isMega: true },
+  { id: 314, apiName: "mega-scrafty", displayName: "Mega Scrafty", isMega: true },
+  { id: 315, apiName: "mega-sharpedo", displayName: "Mega Sharpedo", isMega: true },
+  { id: 316, apiName: "mega-skarmory", displayName: "Mega Skarmory", isMega: true },
+  { id: 317, apiName: "mega-slowbro", displayName: "Mega Slowbro", isMega: true },
+  { id: 318, apiName: "mega-staraptor", displayName: "Mega Staraptor", isMega: true },
+  { id: 319, apiName: "mega-starmie", displayName: "Mega Starmie", isMega: true },
+  { id: 320, apiName: "mega-steelix", displayName: "Mega Steelix", isMega: true },
+  { id: 321, apiName: "mega-swampert", displayName: "Mega Swampert", isMega: true },
+  { id: 322, apiName: "mega-tyranitar", displayName: "Mega Tyranitar", isMega: true },
+  { id: 323, apiName: "mega-venusaur", displayName: "Mega Venusaur", isMega: true },
+  { id: 324, apiName: "mega-victreebel", displayName: "Mega Victreebel", isMega: true },
+];

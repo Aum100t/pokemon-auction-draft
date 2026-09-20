@@ -31,6 +31,8 @@ const screenHome = document.getElementById("screen-home");
 const screenLobby = document.getElementById("screen-lobby");
 const screenGame = document.getElementById("screen-game");
 const screenPostgame = document.getElementById("screen-postgame");
+const screenArchives = document.getElementById("screen-archives");
+const screenArchiveDetail = document.getElementById("screen-archive-detail");
 
 const tabCreate = document.getElementById("tab-create");
 const tabJoin = document.getElementById("tab-join");
@@ -148,7 +150,14 @@ function enterLobby(roomId, playerId, hostStatus) {
   }
 
   onValue(ref(db, "rooms/" + roomId), (snapshot) => {
-    if (!snapshot.exists()) return;
+    // ห้องถูกปิด (โฮสต์ออก หรือไม่เหลือผู้เล่น) -> เด้งกลับหน้าแรก
+    if (!snapshot.exists()) {
+      localStorage.removeItem("pokeAuction_roomId");
+      localStorage.removeItem("pokeAuction_playerId");
+      alert("ห้องนี้ถูกปิดแล้ว");
+      location.reload();
+      return;
+    }
     const room = snapshot.val();
     latestRoom = room;
 
@@ -210,24 +219,96 @@ function renderLobby(room) {
 }
 
 // ---------- Start Game ----------
-async function fetchPokeData(entry) {
-  const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${entry.apiName}`);
-  if (!res.ok) throw new Error("โหลดข้อมูลไม่สำเร็จ: " + entry.apiName);
-  const data = await res.json();
-  const sprite =
-    data.sprites?.other?.["official-artwork"]?.front_default ||
-    data.sprites?.front_default || "";
+// ---------- ดึงข้อมูล/รูปโปเกม่อนจาก PokeAPI ----------
+// รูปสำรองเมื่อหาจาก PokeAPI ไม่เจอ (ฝังเป็น data URI จะได้ไม่ต้องพึ่งไฟล์ภายนอก)
+const FALLBACK_SPRITE =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">' +
+    '<circle cx="48" cy="48" r="44" fill="#ffcb05" stroke="#1e3c72" stroke-width="6"/>' +
+    '<path d="M4 48h88" stroke="#1e3c72" stroke-width="6"/>' +
+    '<circle cx="48" cy="48" r="14" fill="#fff" stroke="#1e3c72" stroke-width="6"/>' +
+    '</svg>'
+  );
+
+// PokeAPI ใช้รูปแบบ "venusaur-mega" / "charizard-mega-x"
+// แต่ในลิสต์เราเขียนเป็น "mega-venusaur" / "mega-charizard-x"
+// ฟังก์ชันนี้จะไล่เดาชื่อที่เป็นไปได้ตามลำดับ ถ้าตัวแรกไม่เจอก็ลองตัวถัดไป
+function apiNameCandidates(pokemon) {
+  const n = String(pokemon.apiName || "").toLowerCase().trim();
+  const out = [];
+  if (n.startsWith("mega-")) {
+    const base = n.slice(5);                       // charizard-x
+    const m = base.match(/^(.+)-(x|y|z)$/);
+    if (m) {
+      out.push(`${m[1]}-mega-${m[2]}`, `${m[1]}-mega`, m[1]);
+    } else {
+      out.push(`${base}-mega`, base);
+    }
+  } else {
+    out.push(n);
+    const f = n.match(/^(.+)-(f|female|m|male)$/);
+        if (f) out.push(f[1]);
+    if (n.includes("-")) out.push(n.split("-")[0]); // ตัดท้ายเป็นร่างพื้นฐาน
+  }
+  return [...new Set(out.filter(Boolean))];
+}
+
+// key ที่ใช้เก็บใน Firebase ต้องไม่มีอักขระ . # $ [ ] /
+function poolKeyOf(pokemon) {
+  return String(pokemon.apiName || pokemon.id).toLowerCase().replace(/[^a-z0-9-]/g, "-");
+}
+
+const spriteCache = new Map();
+
+async function fetchSprite(pokemon) {
+  for (const name of apiNameCandidates(pokemon)) {
+    if (spriteCache.has(name)) return spriteCache.get(name);
+    try {
+      const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${name}`);
+      if (!res.ok) continue;                        // 404 -> ลองชื่อถัดไป
+      const data = await res.json();
+      const sprite =
+        data?.sprites?.other?.["official-artwork"]?.front_default ||
+        data?.sprites?.front_default ||
+        FALLBACK_SPRITE;
+      spriteCache.set(name, sprite);
+      return sprite;
+    } catch (e) {
+      // เน็ตหลุด/โดน rate limit -> ลองชื่อถัดไป
+    }
+  }
+  return FALLBACK_SPRITE;
+}
+
+// ฟังก์ชันหลักที่หน้าเริ่มเกมเรียกใช้ (เดิมหายไป จึงขึ้น error "fetchPokeData is not defined")
+async function fetchPokeData(pokemon) {
   return {
-    id: entry.id,
-    displayName: entry.displayName,
-    isMega: entry.isMega,
-    sprite,
-    status: "available",
-    ownerId: null,
-    bannedBy: null
+    id: poolKeyOf(pokemon),
+    numId: pokemon.id,
+    apiName: pokemon.apiName,
+    displayName: pokemon.displayName,
+    isMega: !!pokemon.isMega,
+    sprite: await fetchSprite(pokemon),
+    status: "available"
   };
 }
 
+// ยิงทีละชุด กัน PokeAPI ตัดการเชื่อมต่อเพราะโหลดพร้อมกัน 300+ requests
+async function mapWithLimit(items, limit, worker, onProgress) {
+  const results = new Array(items.length);
+  let index = 0, done = 0;
+  async function run() {
+    while (index < items.length) {
+      const i = index++;
+      results[i] = await worker(items[i]);
+      done++;
+      if (onProgress) onProgress(done, items.length);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));
+  return results;
+}
 document.getElementById("btn-start").addEventListener("click", async () => {
   if (!isHost || !currentRoomId) return;
   const btn = document.getElementById("btn-start");
@@ -235,7 +316,9 @@ document.getElementById("btn-start").addEventListener("click", async () => {
   btn.textContent = "กำลังโหลดข้อมูลโปเกม่อน...";
 
   try {
-    const poolArr = await Promise.all(POKEMON_LIST.map(fetchPokeData));
+    const poolArr = await mapWithLimit(POKEMON_LIST, 8, fetchPokeData, (done, total) => {
+      btn.textContent = `กำลังโหลดโปเกม่อน... ${done}/${total}`;
+    });
     const pool = {};
     poolArr.forEach(p => (pool[p.id] = p));
 
@@ -414,8 +497,7 @@ async function resolveAuctionIfExpired() {
       const winner = room.players[auction.currentBidderId];
       winner.money -= auction.currentBid;
       if (!winner.team) winner.team = [];
-      winner.team.push({
-        id: poke.id, displayName: poke.displayName, isMega: poke.isMega,
+      winner.team.push({        id: poke.id, displayName: poke.displayName, isMega: poke.isMega,
         sprite: poke.sprite, price: auction.currentBid
       });
       poke.status = "owned";
@@ -461,6 +543,10 @@ async function startNewSeason() {
     room.currentTurnIndex = null;
     room.auction = null;
     room.league = null;
+    // รอบใหม่ = ทัวร์นาเมนต์ใหม่ -> เริ่มบันทึกไฟล์ archive แยกจากรอบก่อน
+    room.archiveId = null;
+    room.archiveName = null;
+    room.archiveCreatedAt = null;
     return room;
   });
 }
@@ -660,8 +746,7 @@ document.getElementById("sec-tab-team").addEventListener("click", () => {
   document.getElementById("pool-section").classList.add("hidden");
 });
 
-function rerenderPoolOnly() {
-  if (!latestRoom || !latestRoom.turnOrder || latestRoom.status !== "picking") return;
+function rerenderPoolOnly() {  if (!latestRoom || !latestRoom.turnOrder || latestRoom.status !== "picking") return;
   const myTurnPid = latestRoom.turnOrder[latestRoom.currentTurnIndex];
   const me = latestRoom.players[currentPlayerId];
   renderPool(latestRoom, myTurnPid === currentPlayerId, me);
@@ -671,6 +756,7 @@ function rerenderPoolOnly() {
 function renderPostgame(room) {
   renderTeamsSummary(room);
   renderLeague(room);
+  renderArchiveBox(room);
   const newSeasonBtn = document.getElementById("btn-new-season");
   if (newSeasonBtn) newSeasonBtn.classList.toggle("hidden", !isHost);
 }
@@ -820,15 +906,48 @@ document.getElementById("btn-new-season").addEventListener("click", async () => 
   }
 });
 
-document.getElementById("btn-leave-room").addEventListener("click", async () => {
-  if (currentRoomId && currentPlayerId) {
-    try {
-      await set(ref(db, `rooms/${currentRoomId}/players/${currentPlayerId}`), null);
-    } catch (e) { /* ignore */ }
+// ---------- ออกจากห้อง (ใช้ร่วมกันทุกหน้าจอ) ----------
+async function leaveRoom({ confirmFirst = true } = {}) {
+  if (confirmFirst) {
+    const msg = isHost && latestRoom?.status === "waiting"
+      ? "คุณเป็นโฮสต์ ถ้าออกตอนนี้ห้องจะถูกปิดและผู้เล่นทุกคนจะหลุดออก\nยืนยันออกจากห้อง?"
+      : "ยืนยันออกจากห้อง? ทีมและข้อมูลของคุณในห้องนี้จะหายไป";
+    if (!confirm(msg)) return;
   }
+
+  const roomId = currentRoomId;
+  const playerId = currentPlayerId;
+
+  try {
+    if (roomId && playerId) {
+      // ยกเลิก onDisconnect ก่อน จะได้ไม่ไปลบข้อมูลซ้ำทีหลัง
+      try { await onDisconnect(ref(db, `rooms/${roomId}/players/${playerId}`)).cancel(); } catch (e) {}
+
+      if (isHost && latestRoom?.status === "waiting") {
+        // โฮสต์ออกตอนยังไม่เริ่มเกม -> ปิดห้องทิ้งเลย
+        await set(ref(db, "rooms/" + roomId), null);
+      } else {
+        await set(ref(db, `rooms/${roomId}/players/${playerId}`), null);
+
+        // ถ้าออกแล้วไม่เหลือใครในห้อง ก็ลบห้องทิ้ง กัน DB รก
+        const rest = await get(ref(db, `rooms/${roomId}/players`));
+        if (!rest.exists() || Object.keys(rest.val() || {}).length === 0) {
+          await set(ref(db, "rooms/" + roomId), null);
+        }
+      }
+    }
+  } catch (e) {
+    console.error("leaveRoom error:", e);
+  }
+
   localStorage.removeItem("pokeAuction_roomId");
   localStorage.removeItem("pokeAuction_playerId");
   location.reload();
+}
+
+["btn-leave-room", "btn-leave-lobby", "btn-leave-game"].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener("click", () => leaveRoom());
 });
 
 // ---------- Auto-rejoin ----------
@@ -843,4 +962,292 @@ window.addEventListener("load", async () => {
       enterLobby(savedRoomId, savedPlayerId, room.hostId === savedPlayerId);
     }
   }
+});
+// =====================================================================
+// ระบบคลังทัวร์นาเมนต์ (Archives)
+// - บันทึกผลของรอบที่ประมูลเสร็จแล้วไว้ที่ /archives/{archiveId} (แยกจาก /rooms)
+// - ใครก็เข้ามาดูได้จากหน้าแรก โดยไม่ต้องมีรหัสห้อง
+// - โฮสต์กด "บันทึก" ครั้งแรกเพื่อตั้งชื่อ จากนั้นกด "อัปเดตผลล่าสุด" ได้เรื่อย ๆ
+//   (เช่น หลังจากกรอกผลแข่งแต่ละสัปดาห์เพิ่ม)
+// =====================================================================
+
+function renderArchiveBox(room) {
+  const statusEl = document.getElementById("archive-status");
+  const controlsEl = document.getElementById("archive-save-controls");
+  const nameInput = document.getElementById("archive-name-input");
+  const btn = document.getElementById("btn-save-archive");
+  if (!statusEl || !btn) return;
+
+  const saved = !!room.archiveId;
+
+  if (saved) {
+    statusEl.innerHTML = `บันทึกแล้วในชื่อ <span class="archive-saved-text">"${room.archiveName || ""}"</span> — ใครก็เข้าไปดูได้จากหน้าแรก`;
+    nameInput.classList.add("hidden");
+    btn.textContent = "🔄 อัปเดตผลล่าสุด";
+  } else {
+    statusEl.textContent = isHost
+      ? "ตั้งชื่อทัวร์นาเมนต์นี้แล้วกดบันทึก เพื่อให้ทุกคนเข้ามาดูย้อนหลังได้"
+      : "ยังไม่ได้บันทึกทัวร์นาเมนต์นี้ (รอโฮสต์กดบันทึก)";
+    nameInput.classList.remove("hidden");
+    btn.textContent = "💾 บันทึกทัวร์นาเมนต์ (ให้ทุกคนดูได้)";
+  }
+
+  // เฉพาะโฮสต์เท่านั้นที่บันทึก/อัปเดตได้ กันข้อมูลชนกัน
+  controlsEl.classList.toggle("hidden", !isHost);
+}
+async function saveOrUpdateArchive() {
+  const room = latestRoom;
+  if (!room || !isHost || !currentRoomId) return;
+
+  const btn = document.getElementById("btn-save-archive");
+  const nameInput = document.getElementById("archive-name-input");
+  const isUpdate = !!room.archiveId;
+  const name = isUpdate ? (room.archiveName || "ทัวร์นาเมนต์") : (nameInput.value.trim() || "ทัวร์นาเมนต์ไม่มีชื่อ");
+
+  btn.disabled = true;
+  btn.textContent = isUpdate ? "กำลังอัปเดต..." : "กำลังบันทึก...";
+
+  try {
+    const archiveId = room.archiveId || push(ref(db, "archives")).key;
+    const createdAt = room.archiveCreatedAt || Date.now();
+
+    const snapshot = {
+      name,
+      roomId: currentRoomId,
+      hostName: (room.players && room.players[room.hostId]?.name) || "-",
+      playerCount: room.players ? Object.keys(room.players).length : 0,
+      createdAt,
+      updatedAt: Date.now(),
+      settings: room.settings || null,
+      players: room.players || {},
+      hostId: room.hostId || null,
+      league: room.league || null
+    };
+
+    await set(ref(db, `archives/${archiveId}`), snapshot);
+
+    if (!isUpdate) {
+      await updateRoom((r) => {
+        r.archiveId = archiveId;
+        r.archiveName = name;
+        r.archiveCreatedAt = createdAt;
+        return r;
+      });
+    }
+  } catch (e) {
+    console.error("saveOrUpdateArchive error:", e);
+    alert("บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง");
+  } finally {
+    btn.disabled = false;
+    if (latestRoom) renderArchiveBox(latestRoom);
+  }
+}
+
+document.getElementById("btn-save-archive").addEventListener("click", saveOrUpdateArchive);
+
+// ---------- หน้ารายการทัวร์นาเมนต์ (เข้าได้จากหน้าแรก ไม่ต้องมีรหัสห้อง) ----------
+let allArchivesCache = [];
+
+function hideAllTopScreens() {
+  screenHome.classList.add("hidden");
+  screenLobby.classList.add("hidden");
+  screenGame.classList.add("hidden");
+  screenPostgame.classList.add("hidden");
+  screenArchives.classList.add("hidden");
+  screenArchiveDetail.classList.add("hidden");
+}
+
+async function openArchivesList() {
+  hideAllTopScreens();
+  document.querySelector(".container").classList.remove("game-mode");
+  screenArchives.classList.remove("hidden");
+  document.getElementById("archives-list").innerHTML = `<p class="loading-text">กำลังโหลด...</p>`;
+
+  try {
+    const snap = await get(ref(db, "archives"));
+    const val = snap.exists() ? snap.val() : {};
+    allArchivesCache = Object.entries(val)
+      .map(([id, a]) => ({ id, ...a }))
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    renderArchivesList(allArchivesCache);
+  } catch (e) {
+    console.error("openArchivesList error:", e);
+    document.getElementById("archives-list").innerHTML = `<p class="archives-empty">โหลดข้อมูลไม่สำเร็จ</p>`;
+  }
+}
+
+function renderArchivesList(list) {
+  const container = document.getElementById("archives-list");
+  if (!list.length) {
+    container.innerHTML = `<p class="archives-empty">ยังไม่มีทัวร์นาเมนต์ที่บันทึกไว้</p>`;
+    return;
+  }
+  container.innerHTML = list.map(a => {
+    const date = a.updatedAt ? new Date(a.updatedAt).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" }) : "-";
+    return `
+      <div class="archive-item" data-id="${a.id}">
+        <div>
+          <div class="a-name">🏆 ${a.name || "ไม่มีชื่อ"}</div>
+          <div class="a-meta">ผู้เล่น ${a.playerCount || 0} คน • โฮสต์: ${a.hostName || "-"} • อัปเดตล่าสุด ${date}</div>
+        </div>
+        <span class="badge">ดูรายละเอียด ➜</span>
+      </div>`;
+  }).join("");
+
+  container.querySelectorAll(".archive-item").forEach(el => {
+    el.addEventListener("click", () => openArchiveDetail(el.dataset.id));
+  });
+}
+
+document.getElementById("archives-search").addEventListener("input", (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  const filtered = q
+    ? allArchivesCache.filter(a => (a.name || "").toLowerCase().includes(q) || (a.hostName || "").toLowerCase().includes(q))
+    : allArchivesCache;
+  renderArchivesList(filtered);
+});
+
+document.getElementById("btn-open-archives").addEventListener("click", openArchivesList);
+document.getElementById("btn-archives-back").addEventListener("click", () => {
+  hideAllTopScreens();
+  screenHome.classList.remove("hidden");
+});
+
+// ---------- หน้ารายละเอียดทัวร์นาเมนต์ (read-only) ----------
+let currentArchiveWeekView = 1;
+
+async function openArchiveDetail(archiveId) {
+  hideAllTopScreens();
+  screenArchiveDetail.classList.remove("hidden");
+  document.getElementById("archive-detail-title").textContent = "กำลังโหลด...";
+  document.getElementById("archive-detail-meta").textContent = "";
+  document.getElementById("adet-teams-grid").innerHTML = "";
+
+  try {
+    const snap = await get(ref(db, `archives/${archiveId}`));
+    if (!snap.exists()) {
+      document.getElementById("archive-detail-title").textContent = "ไม่พบข้อมูล";
+      return;
+    }
+    const archive = snap.val();
+    currentArchiveWeekView = 1;
+    renderArchiveDetail(archive);
+  } catch (e) {
+    console.error("openArchiveDetail error:", e);
+    document.getElementById("archive-detail-title").textContent = "โหลดข้อมูลไม่สำเร็จ";
+  }
+}
+
+function renderArchiveDetail(archive) {
+  document.getElementById("archive-detail-title").textContent = `🏆 ${archive.name || "ไม่มีชื่อ"}`;
+  const date = archive.updatedAt ? new Date(archive.updatedAt).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" }) : "-";
+  document.getElementById("archive-detail-meta").textContent =
+    `ห้อง: ${archive.roomId || "-"} • โฮสต์: ${archive.hostName || "-"} • ผู้เล่น ${archive.playerCount || 0} คน • อัปเดตล่าสุด ${date}`;
+
+  const players = archive.players || {};
+  const grid = document.getElementById("adet-teams-grid");
+  grid.innerHTML = Object.entries(players).map(([pid, p]) => `
+    <div class="team-summary-card">
+      <h4>${p.name}${pid === archive.hostId ? ' <span class="badge">HOST</span>' : ''}</h4>
+      <p class="small-text">เงินคงเหลือ: ${(p.money || 0).toLocaleString()}</p>
+      <div class="my-team">
+        ${(p.team || []).map(t => `
+          <div class="team-slot">
+            <img src="${t.sprite}" alt="">
+            <span>${t.displayName}${t.isMega ? ' 🌟' : ''}</span>
+            ${t.price ? `<span class="price-tag">💰${t.price.toLocaleString()}</span>` : (t.viaTicket ? '<span class="price-tag">🎫 ตั๋ว</span>' : '')}
+          </div>`).join("")}
+      </div>
+    </div>
+  `).join("") || `<p class="archives-empty">ไม่มีข้อมูลทีม</p>`;
+
+  const league = archive.league;
+  const leagueSection = document.getElementById("adet-league-section");
+  if (!league || !league.weeks || !league.weeks.length) {
+    leagueSection.innerHTML = `<p class="archives-empty">ทัวร์นาเมนต์นี้ไม่มีตารางแข่งขัน</p>`;
+  } else {
+    leagueSection.innerHTML = `
+      <div class="week-tabs" id="adet-week-tabs"></div>
+      <div id="adet-week-matches"></div>
+      <h3 style="margin:20px 0 10px;">📊 ตารางคะแนน</h3>
+      <table class="standings-table" id="adet-standings-table"></table>
+    `;
+    renderArchiveLeague(archive);
+  }
+}
+
+function computeArchiveStandings(archive) {
+  const stats = {};
+  Object.keys(archive.players || {}).forEach(pid => {
+    stats[pid] = { name: archive.players[pid].name, wins: 0, losses: 0, points: 0, played: 0 };
+  });
+  (archive.league.weeks || []).forEach(week => {
+    week.matches.forEach(m => {
+      if (m.isBye || !m.winnerId) return;
+      const loserId = m.winnerId === m.player1Id ? m.player2Id : m.player1Id;
+      if (stats[m.winnerId]) { stats[m.winnerId].wins += 1; stats[m.winnerId].points += 3; stats[m.winnerId].played += 1; }
+      if (stats[loserId]) { stats[loserId].losses += 1; stats[loserId].played += 1; }
+    });
+  });
+  return Object.entries(stats).map(([pid, s]) => ({ pid, ...s })).sort((a, b) => b.points - a.points || b.wins - a.wins);
+}
+
+function renderArchiveLeague(archive) {
+  const weeks = archive.league.weeks;
+  const weekTabsDiv = document.getElementById("adet-week-tabs");
+  weekTabsDiv.innerHTML = weeks.map(w =>
+    `<button class="week-tab-btn ${w.weekNumber === currentArchiveWeekView ? 'active' : ''}" data-week="${w.weekNumber}">สัปดาห์ ${w.weekNumber}</button>`
+  ).join("");
+  weekTabsDiv.querySelectorAll("button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      currentArchiveWeekView = parseInt(btn.dataset.week);
+      renderArchiveLeague(archive);
+    });
+  });
+
+  const week = weeks.find(w => w.weekNumber === currentArchiveWeekView) || weeks[0];
+  const matchesDiv = document.getElementById("adet-week-matches");
+  matchesDiv.innerHTML = week.matches.map(m => {
+    if (m.isBye) {
+      const p = archive.players[m.player1Id];
+      return `<div class="match-card bye-card"><span>${p?.name || "?"}</span><span class="badge">BYE</span></div>`;
+    }
+    const p1 = archive.players[m.player1Id];
+    const p2 = archive.players[m.player2Id];
+    const p1Win = m.winnerId === m.player1Id;
+    const p2Win = m.winnerId === m.player2Id;
+    return `<div class="match-card">
+      <div class="match-players">
+        <span class="${p1Win ? 'winner-name' : ''}">${p1?.name || "?"}</span>
+        <span class="vs">VS</span>
+        <span class="${p2Win ? 'winner-name' : ''}">${p2?.name || "?"}</span>
+      </div>
+      ${m.winnerId ? `<p class="small-text">ผู้ชนะ: ${archive.players[m.winnerId]?.name}</p>` : `<p class="small-text">ยังไม่ได้แข่ง</p>`}
+    </div>`;
+  }).join("");
+
+  const standings = computeArchiveStandings(archive);
+  const table = document.getElementById("adet-standings-table");
+  table.innerHTML = `
+    <tr><th>#</th><th>ผู้เล่น</th><th>แข่ง</th><th>ชนะ</th><th>แพ้</th><th>แต้ม</th></tr>
+    ${standings.map((s, i) => `
+      <tr><td>${i + 1}</td><td>${s.name}</td><td>${s.played}</td><td>${s.wins}</td><td>${s.losses}</td><td><b>${s.points}</b></td></tr>`).join("")}
+  `;
+}
+
+document.getElementById("adet-tab-teams").addEventListener("click", () => {
+  document.getElementById("adet-tab-teams").classList.add("active");
+  document.getElementById("adet-tab-league").classList.remove("active");
+  document.getElementById("adet-teams-section").classList.remove("hidden");
+  document.getElementById("adet-league-section").classList.add("hidden");
+});
+document.getElementById("adet-tab-league").addEventListener("click", () => {
+  document.getElementById("adet-tab-league").classList.add("active");
+  document.getElementById("adet-tab-teams").classList.remove("active");
+  document.getElementById("adet-league-section").classList.remove("hidden");
+  document.getElementById("adet-teams-section").classList.add("hidden");
+});
+document.getElementById("btn-archive-detail-back").addEventListener("click", () => {
+  hideAllTopScreens();
+  screenArchives.classList.remove("hidden");
 });
