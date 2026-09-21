@@ -78,6 +78,12 @@ button:disabled { cursor:not-allowed; opacity:.48; }
 .match-card { overflow:hidden; }.match-players { display:flex; align-items:center; justify-content:space-between; gap:12px; font-weight:800; }.vs { color:var(--gold); font-size:.8rem; }
 .standings-table { width:100%; border-collapse:collapse; overflow:hidden; border:1px solid var(--line); border-radius:12px; font-size:.9rem; }.standings-table th { padding:11px 8px; background:rgba(88,182,255,.16); text-align:left; }.standings-table td { padding:10px 8px; border-top:1px solid var(--line); vertical-align:top; }.standings-table tr:hover td { background:rgba(255,255,255,.035); }
 .pool-grid,.teams-summary-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; }.pokemon-card,.team-card { padding:12px; border-radius:12px; background:rgba(255,255,255,.06); }
+.poke-card { min-width:0; overflow:hidden; padding:12px; border:1px solid var(--line); border-radius:12px; text-align:center; background:rgba(255,255,255,.06); }
+.poke-card > img { display:block; width:100%; height:116px; margin:0 auto 8px; object-fit:contain; object-position:center; }
+.poke-card .name { min-height:38px; font-weight:800; overflow-wrap:anywhere; }
+.team-slot { min-width:0; overflow:hidden; padding:8px; border-radius:9px; background:rgba(255,255,255,.06); text-align:center; }
+.team-slot img { display:block; width:72px; height:72px; margin:0 auto 6px; object-fit:contain; }
+.auction-box > img { display:block; width:min(180px,100%); height:180px; margin:0 auto 10px; object-fit:contain; }
 .week-tabs,.pool-tabs { display:flex; gap:7px; flex-wrap:wrap; margin:14px 0; }.week-tab-btn,.pool-tabs button { border:1px solid var(--line); border-radius:999px; padding:7px 11px; background:transparent; color:var(--ink); cursor:pointer; }.week-tab-btn.active,.pool-tabs button.active { background:var(--blue); color:#08213f; }
 .archive-save-box,.admin-panel,.archive-admin-bar { margin:14px 0; padding:14px; border-radius:13px; background:rgba(255,255,255,.055); }.postgame-actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:20px; }
 @media (max-width:620px) { .container { width:min(100% - 16px,1080px); padding-top:20px; }.card { padding:16px; border-radius:16px; }.game-header { align-items:flex-start; flex-wrap:wrap; }.format-row,.chat-input-row { flex-direction:column; }.tabs,.section-tabs { overflow:auto; }.tab-btn,.section-tab-btn { min-width:130px; }.standings-table { display:block; overflow-x:auto; white-space:nowrap; }.tournament-actions .primary { width:100%; } }
