@@ -76,10 +76,17 @@
     <details class="team-editor"><summary>📝 บันทึกข้อมูลทีมของฉัน (สำหรับ Meta)</summary><p class="small-text">1 ตัวต่อ 1 บรรทัด: Pokémon | Move 1, Move 2 | Item | Nature</p><textarea id="team-profile-input" rows="7" placeholder="Incineroar | Fake Out, Parting Shot | Sitrus Berry | Careful"></textarea><button class="primary" id="btn-save-team-profile">บันทึกทีม</button></details>
     <div id="tournament-pairings"></div>
     <div class="admin-help"><button class="primary" id="btn-call-admin">🆘 เรียกแอดมิน</button><span id="admin-call-status" class="small-text"></span><details><summary>💬 แชทกับแอดมิน</summary><div class="chat-messages" id="admin-chat-messages"></div><div class="chat-input-row"><input id="admin-chat-input" maxlength="300" placeholder="ส่งข้อความถึงผู้จัด/ทีมงาน"><button id="btn-admin-chat-send">ส่ง</button></div></details></div>
-    <div class="tournament-actions"><button class="primary hidden" id="btn-next-round">เริ่มรอบต่อไป</button><button class="primary hidden" id="btn-advance-phase">ปิดเฟสและคัด Top</button><button class="primary btn-danger" id="btn-withdraw">ถอนตัว</button><button class="primary hidden" id="btn-cancel-withdraw">ยกเลิกการถอนตัว</button><button class="primary btn-danger hidden" id="btn-finish-tournament">จบทัวร์นาเมนต์และล้างแชท</button></div>
+    <div class="tournament-actions"><button class="primary hidden" id="btn-next-round">เริ่มรอบต่อไป</button><button class="primary hidden" id="btn-advance-phase">ปิดเฟสและคัด Top</button><button class="primary btn-danger" id="btn-withdraw">ถอนตัว</button><button class="primary hidden" id="btn-cancel-withdraw">ยกเลิกการถอนตัว</button><button class="primary hidden" id="btn-open-admin-calls">🆘 คำขอแอดมิน</button><button class="primary btn-danger hidden" id="btn-finish-tournament">จบทัวร์นาเมนต์และล้างแชท</button></div>
     <h3>📊 อันดับปัจจุบัน</h3><table class="standings-table" id="tournament-standings"></table>
     <section id="meta-analytics" class="meta-analytics hidden"><h3>📈 Meta Analytics</h3><p class="small-text">แสดงเฉพาะห้องแบบปกติ และรายละเอียดทีมจะไม่ถูกเปิดอัตโนมัติ</p><div id="meta-content"></div></section>
   </div>
+
+  <!-- แผงด้านข้าง: เห็นเฉพาะเจ้าของ/ผู้จัด/ทีมงานที่ดูแลทัวร์นี้ -->
+  <aside id="admin-call-drawer" class="admin-call-drawer hidden" aria-label="คำขอเรียกแอดมิน">
+    <div class="admin-call-drawer-header"><h3>🆘 คำขอเรียกแอดมิน</h3><button class="btn-leave-small" id="btn-close-admin-calls">✕</button></div>
+    <p class="small-text">แยกคำขอตามคู่แข่งขัน เพื่อให้ทีมงานตอบเรื่องได้ตรงคู่</p>
+    <div id="admin-call-drawer-content"></div>
+  </aside>
 
   <!-- ห้องรอ (Lobby) -->
   <div id="screen-lobby" class="card hidden">

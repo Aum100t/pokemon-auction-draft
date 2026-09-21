@@ -38,6 +38,8 @@ let myAffiliation = null;
 let myRoleData = null;
 let roomNotificationsStarted = false;
 const seenAdminCalls = new Set();
+let adminCallsUnsub = null;
+let adminCallsRoomId = null;
 
 let currentArchiveId = null;
 let currentArchiveData = null;
@@ -410,17 +412,40 @@ async function advanceTournamentPhase() {
     t.phaseIndex++; t.round=0; t.history=[]; t.started=false; t.checkins={}; t.phaseComplete=false; return room;
   });
 }
-async function tournamentAction(action, payload={}) { await updateRoom(room => { const t=room.tournament, spectator=room.players?.[currentPlayerId]?.isSpectator; if(!t) return room; if(action==='checkin'&&!spectator) t.checkins[currentPlayerId]=true; if(action==='withdraw'&&!spectator) t.pendingWithdrawals[currentPlayerId]=true; if(action==='cancelWithdraw'&&!spectator) delete t.pendingWithdrawals[currentPlayerId]; if(action==='result') { const m=t.history[payload.round]?.matches[payload.match]; const validScore=room.settings.bestOf==="BO3" ? /^(2-[01]|[01]-2)$/.test(payload.score||"") : payload.score==="1-0" || payload.score==="0-1"; const winnerMatchesScore=payload.winner===m?.player1Id ? String(payload.score).startsWith("2")||payload.score==="1-0" : String(payload.score).endsWith("2")||payload.score==="0-1"; if(m&&!m.isBye&&validScore&&winnerMatchesScore&&(currentPlayerId===room.hostId||currentPlayerId===m.player1Id||currentPlayerId===m.player2Id)) { m.pendingWinnerId=payload.winner; m.pendingScore=payload.score; m.reportedAt=Date.now(); m.reportedBy=currentPlayerId; } } return room; }); }
+async function tournamentAction(action, payload={}) {
+  try {
+    const result = await updateRoom(room => {
+      const t=room.tournament, spectator=room.players?.[currentPlayerId]?.isSpectator;
+      if(!t || !room.players?.[currentPlayerId]) return room;
+      if(action==='checkin'&&!spectator) t.checkins[currentPlayerId]=true;
+      if(action==='withdraw'&&!spectator) {
+        room.players[currentPlayerId].withdrawn=true;
+        delete t.pendingWithdrawals?.[currentPlayerId];
+        const current=t.history?.[t.history.length-1];
+        const match=current?.matches?.find(m=>!m.isBye&&!m.winnerId&&(m.player1Id===currentPlayerId||m.player2Id===currentPlayerId));
+        if(match) { match.winnerId=match.player1Id===currentPlayerId?match.player2Id:match.player1Id; match.score="ถอนตัว"; match.reportedAt=Date.now(); }
+      }
+      if(action==='result') { const m=t.history[payload.round]?.matches[payload.match]; const validScore=room.settings.bestOf==="BO3" ? /^(2-[01]|[01]-2)$/.test(payload.score||"") : payload.score==="1-0" || payload.score==="0-1"; const winnerMatchesScore=payload.winner===m?.player1Id ? String(payload.score).startsWith("2")||payload.score==="1-0" : String(payload.score).endsWith("2")||payload.score==="0-1"; if(m&&!m.isBye&&validScore&&winnerMatchesScore&&(currentPlayerId===room.hostId||currentPlayerId===m.player1Id||currentPlayerId===m.player2Id)) { m.pendingWinnerId=payload.winner; m.pendingScore=payload.score; m.reportedAt=Date.now(); m.reportedBy=currentPlayerId; } }
+      return room;
+    });
+    if (!result.committed) throw new Error("Firebase did not commit the change");
+    return true;
+  } catch (error) {
+    console.error("tournament action failed:", error);
+    alert("บันทึกไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ตหรือสิทธิ์เข้าห้อง แล้วลองใหม่อีกครั้ง");
+    return false;
+  }
+}
 function parseTeamProfile(text) {
   return String(text||"").split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => {
     const [pokemon="", moves="", item="", nature=""] = line.split("|").map(x=>x.trim());
     return { pokemon, moves:moves.split(",").map(x=>x.trim()).filter(Boolean), item, nature };
   }).filter(p=>p.pokemon).slice(0, 6);
 }
-function profileOf(player) {
-  if(player.teamProfile?.length) return player.teamProfile;
-  return (player.team||[]).map(p=>({pokemon:p.displayName||p.name||"Pokémon",moves:[],item:"",nature:""}));
+function tournamentTeamOf(player) {
+  return Array.isArray(player?.tournamentTeam) ? player.tournamentTeam : [];
 }
+function profileOf(player) { return tournamentTeamOf(player); }
 function teamPreviewHtml(player, key) {
   const profile=profileOf(player); if(!profile.length) return `<p class="small-text">ยังไม่ได้บันทึกข้อมูลทีม</p>`;
   return `<button class="team-toggle" data-team-toggle="${key}">👁️ ดูภาพรวมทีม</button><div id="team-preview-${key}" class="team-preview hidden">${profile.map(p=>`<div><b>${escapeHtml(p.pokemon)}</b>${p.item?` — ${escapeHtml(p.item)}`:""}${p.nature?` (${escapeHtml(p.nature)})`:""}${p.moves?.length?`<br><span class="small-text">${p.moves.map(escapeHtml).join(" · ")}</span>`:""}</div>`).join("")}</div>`;
@@ -428,11 +453,13 @@ function teamPreviewHtml(player, key) {
 function bindTeamToggles(root) { root.querySelectorAll("button[data-team-toggle]").forEach(btn=>btn.addEventListener("click",()=>document.getElementById("team-preview-"+btn.dataset.teamToggle)?.classList.toggle("hidden"))); }
 function renderMetaAnalytics(room) {
   const box=document.getElementById("meta-analytics"), content=document.getElementById("meta-content");
-  box.classList.toggle("hidden",room.settings.mode!=="normal"); if(room.settings.mode!=="normal") return;
-  const totals={pokemon:{},moves:{},items:{},natures:{}}, players=competitivePlayerIds(room).map(pid=>room.players[pid]);
-  players.forEach(p=>profileOf(p).forEach(mon=>{const add=(group,value)=>{if(value) totals[group][value]=(totals[group][value]||0)+1;};add("pokemon",mon.pokemon);(mon.moves||[]).forEach(x=>add("moves",x));add("items",mon.item);add("natures",mon.nature);}));
-  const rows=(title,obj,percent)=>`<div><b>${title}</b>${Object.entries(obj).sort((a,b)=>b[1]-a[1]).slice(0,12).map(([name,count])=>`<br>${escapeHtml(name)}: ${count}${percent?` (${Math.round(count/Math.max(1,players.length)*100)}%)`:""}`).join("")||"<br>ยังไม่มีข้อมูล"}</div>`;
-  content.innerHTML=`<div class="meta-grid">${rows("Pokémon usage",totals.pokemon,true)}${rows("Moves",totals.moves)}${rows("Items",totals.items)}${rows("Natures",totals.natures)}</div>`;
+  box.classList.remove("hidden");
+  const teams=competitivePlayerIds(room).map(pid=>tournamentTeamOf(room.players[pid])).filter(team=>team.length);
+  if (!teams.length) { content.innerHTML='<p class="small-text">ยังไม่มีผู้เล่นบันทึกทีมที่ใช้แข่ง ข้อมูลจากการประมูลจะไม่ถูกนำมาคิด</p>'; return; }
+  const totals={pokemon:{},moves:{},items:{},natures:{}};
+  teams.forEach(team=>team.forEach(mon=>{const add=(group,value)=>{if(value) totals[group][value]=(totals[group][value]||0)+1;};add("pokemon",mon.pokemon);(mon.moves||[]).forEach(x=>add("moves",x));add("items",mon.item);add("natures",mon.nature);}));
+  const rows=(title,obj,percent)=>`<div><b>${title}</b>${Object.entries(obj).sort((a,b)=>b[1]-a[1]).slice(0,12).map(([name,count])=>`<br>${escapeHtml(name)}: ${count}${percent?` (${Math.round(count/Math.max(1,teams.length)*100)}%)`:""}`).join("")||"<br>ยังไม่มีข้อมูล"}</div>`;
+  content.innerHTML=`<p class="small-text">เก็บข้อมูลแล้ว ${teams.length}/${competitivePlayerIds(room).length} ทีม</p><div class="meta-grid">${rows("Pokémon usage",totals.pokemon,true)}${rows("Moves",totals.moves)}${rows("Items",totals.items)}${rows("Natures",totals.natures)}</div>`;
 }
 function formatTournamentDate(time) { return new Intl.DateTimeFormat("th-TH",{dateStyle:"full",timeStyle:"short"}).format(new Date(time)); }
 function renderChatMessages(element, messages) { element.innerHTML=Object.values(messages||{}).sort((a,b)=>a.time-b.time).map(m=>`<div class="chat-msg"><b>${escapeHtml(m.name)}:</b> ${escapeHtml(m.text)}</div>`).join(""); element.scrollTop=element.scrollHeight; }
@@ -441,11 +468,65 @@ function mountMatchChat(room, roundIndex, matchIndex, canChat) {
   const chatRef=ref(db,`rooms/${currentRoomId}/matchChats/${roundIndex}/${matchIndex}`); onValue(chatRef,snap=>renderChatMessages(box,snap.val()));
   document.getElementById(`${key}-send`).onclick=()=>{const text=input.value.trim(); if(text) {push(chatRef,{name:room.players[currentPlayerId]?.name||"ผู้เล่น",text,time:Date.now()});input.value="";}};
 }
+function currentMatchContext(room, playerId) {
+  const rounds = room.tournament?.history || [];
+  const roundIndex = rounds.length - 1;
+  const round = rounds[roundIndex];
+  const matchIndex = round?.matches?.findIndex(m => !m.isBye && !m.winnerId && (m.player1Id === playerId || m.player2Id === playerId)) ?? -1;
+  const match = matchIndex >= 0 ? round.matches[matchIndex] : null;
+  if (!match) return { matchKey: "general", matchLabel: "คำขอทั่วไป (ยังไม่มีคู่ที่กำลังแข่ง)" };
+  const a = room.players?.[match.player1Id]?.name || "-";
+  const b = room.players?.[match.player2Id]?.name || "-";
+  return { roundIndex, matchIndex, matchKey: `${roundIndex}-${matchIndex}`, matchLabel: `รอบ ${round.round || roundIndex + 1}: ${a} VS ${b}`, player1Id: match.player1Id, player2Id: match.player2Id };
+}
+function canManageRoom(room) {
+  return !!room && !!currentUser && (isOwner || room.creatorUid === currentUser.uid || (isStaff && !!myAffiliation && room.affiliation === myAffiliation));
+}
+function closeAdminCallDrawer() { document.getElementById("admin-call-drawer")?.classList.add("hidden"); }
+function syncAdminCallDrawer(room, roomId = currentRoomId) {
+  const drawer = document.getElementById("admin-call-drawer");
+  const openButton = document.getElementById("btn-open-admin-calls");
+  const allowed = canManageRoom(room);
+  openButton?.classList.toggle("hidden", !allowed || room.status !== "tournament");
+  if (!allowed) {
+    closeAdminCallDrawer();
+    if (adminCallsUnsub) adminCallsUnsub();
+    adminCallsUnsub = null; adminCallsRoomId = null;
+    return;
+  }
+  openButton.onclick = () => drawer.classList.remove("hidden");
+  if (adminCallsRoomId === roomId) return;
+  if (adminCallsUnsub) adminCallsUnsub();
+  adminCallsRoomId = roomId;
+  adminCallsUnsub = onValue(ref(db, `rooms/${roomId}/adminCalls`), snap => {
+    const calls = Object.entries(snap.val() || {}).filter(([, call]) => call.status !== "closed");
+    const groups = calls.reduce((all, [id, call]) => {
+      const key = call.matchKey || "general";
+      (all[key] ||= { label: call.matchLabel || "คำขอทั่วไป", calls: [] }).calls.push({ id, ...call });
+      return all;
+    }, {});
+    document.getElementById("admin-call-drawer-content").innerHTML = Object.values(groups).map(group => `<section class="admin-call-group"><h4>${escapeHtml(group.label)}</h4>${group.calls.sort((a,b)=>b.time-a.time).map(call => `<div class="admin-call-item"><b>${escapeHtml(call.name || "ผู้เล่น")}</b><br><span class="small-text">${formatTournamentDate(call.time)} • ${call.status === "acknowledged" ? "รับเรื่องแล้ว" : "รอรับเรื่อง"}</span><div class="admin-call-actions">${call.status === "open" ? `<button class="primary" data-admin-call-action="acknowledged" data-call-id="${call.id}">รับเรื่อง</button>` : ""}<button class="btn-leave-small" data-admin-call-action="closed" data-call-id="${call.id}">ปิดคำขอ</button></div></div>`).join("")}</section>`).join("") || '<p class="small-text">ไม่มีคำขอเรียกแอดมิน</p>';
+    if (calls.length) drawer.classList.remove("hidden");
+    document.querySelectorAll("[data-admin-call-action]").forEach(button => button.onclick = async () => {
+      try { await update(ref(db, `rooms/${roomId}/adminCalls/${button.dataset.callId}`), { status: button.dataset.adminCallAction, handledBy: currentUser.uid, handledAt: Date.now() }); }
+      catch (error) { console.error("admin call update failed:", error); alert("อัปเดตคำขอไม่สำเร็จ"); }
+    });
+  });
+}
+document.getElementById("btn-close-admin-calls")?.addEventListener("click", closeAdminCallDrawer);
 function mountAdminChat(room) {
   const box=document.getElementById("admin-chat-messages"), input=document.getElementById("admin-chat-input"), chatRef=ref(db,`rooms/${currentRoomId}/adminChat`); onValue(chatRef,snap=>renderChatMessages(box,snap.val()));
-  if(isHost) onValue(ref(db,`rooms/${currentRoomId}/adminCalls`),snap=>{const count=Object.values(snap.val()||{}).filter(c=>c.status!=="closed").length; document.getElementById("admin-call-status").textContent=count?`มีคำขอเรียกแอดมิน ${count} รายการ`:"";});
-  document.getElementById("btn-admin-chat-send").onclick=()=>{const text=input.value.trim();if(text){push(chatRef,{name:room.players[currentPlayerId]?.name||"ผู้เล่น",text,time:Date.now(),senderId:currentPlayerId});input.value="";}};
-  document.getElementById("btn-call-admin").onclick=async()=>{await push(ref(db,`rooms/${currentRoomId}/adminCalls`),{playerId:currentPlayerId,name:room.players[currentPlayerId]?.name||"ผู้เล่น",time:Date.now(),status:"open"});document.getElementById("admin-call-status").textContent="ส่งคำขอเรียกแอดมินแล้ว";};
+  document.getElementById("btn-admin-chat-send").onclick=async()=>{const text=input.value.trim();if(text){try { await push(chatRef,{name:room.players[currentPlayerId]?.name||"ผู้เล่น",text,time:Date.now(),senderId:currentPlayerId}); input.value=""; } catch(error) { console.error("admin chat failed:", error); alert("ส่งข้อความไม่สำเร็จ"); }}};
+  document.getElementById("btn-call-admin").onclick=async()=>{
+    const status = document.getElementById("admin-call-status");
+    const context = currentMatchContext(room, currentPlayerId);
+    const duplicate = Object.values(room.adminCalls || {}).some(call => call.playerId === currentPlayerId && call.matchKey === context.matchKey && call.status !== "closed");
+    if (duplicate) { status.textContent = "มีคำขอสำหรับคู่นี้อยู่แล้ว"; return; }
+    try {
+      await push(ref(db,`rooms/${currentRoomId}/adminCalls`),{playerId:currentPlayerId,name:room.players[currentPlayerId]?.name||"ผู้เล่น",time:Date.now(),status:"open",...context});
+      status.textContent = `ส่งคำขอเรียกแอดมินแล้ว (${context.matchLabel})`;
+    } catch (error) { console.error("admin call failed:", error); status.textContent = "ส่งคำขอไม่สำเร็จ กรุณาลองใหม่"; }
+  };
 }
 async function finishTournament(room) {
   if(!isHost || !currentRoomId || !confirm("จบทัวร์นาเมนต์และล้างแชททั้งหมดใช่หรือไม่?")) return;
@@ -460,13 +541,16 @@ async function saveMyTournamentHistory(room) {
   await update(ref(db,`rooms/${currentRoomId}/historySaved/${currentPlayerId}`),true);
 }
 function renderTournament(room) {
+  // รองรับห้องเก่าที่สร้างก่อนเพิ่มตัวเลือกรูปแบบการแข่งขัน
+  room.settings={maxPlayers:4,mode:"normal",phases:["swiss"],bestOf:"BO1",checkIn:"once",...room.settings,phases:room.settings?.phases?.length?room.settings.phases:["swiss"]};
   const t=room.tournament||initialTournament(room), phase=room.settings.phases[t.phaseIndex]||"swiss", stats=tournamentStats(room), current=t.history[t.history.length-1];
   const amSpectator=!!room.players[currentPlayerId]?.isSpectator;
   document.getElementById("tournament-room-code").textContent=currentRoomId;
   document.getElementById("tournament-meta").textContent=`เฟส ${t.phaseIndex+1}/${room.settings.phases.length}: ${tournamentLabel(phase)} • ${room.settings.bestOf} • ผู้เล่นสมัคร ${competitivePlayerIds(room).length}/${room.settings.maxPlayers}`;
   document.getElementById("tournament-date").textContent=`เริ่มการแข่งขัน: ${formatTournamentDate(room.createdAt)}${room.completedAt?` • จบ: ${formatTournamentDate(room.completedAt)}`:""}`;
   if(room.status === "tournament") mountAdminChat(room);
-  const editor=document.getElementById("team-profile-input"); editor.closest(".team-editor").classList.toggle("hidden",amSpectator); editor.value=profileOf(room.players[currentPlayerId]).map(p=>`${p.pokemon} | ${(p.moves||[]).join(", ")} | ${p.item||""} | ${p.nature||""}`).join("\n"); document.getElementById("btn-save-team-profile").onclick=()=>update(ref(db,`rooms/${currentRoomId}/players/${currentPlayerId}`),{teamProfile:parseTeamProfile(editor.value)});
+  syncAdminCallDrawer(room);
+  const editor=document.getElementById("team-profile-input"); editor.closest(".team-editor").classList.toggle("hidden",amSpectator); editor.value=tournamentTeamOf(room.players[currentPlayerId]).map(p=>`${p.pokemon} | ${(p.moves||[]).join(", ")} | ${p.item||""} | ${p.nature||""}`).join("\n"); document.getElementById("btn-save-team-profile").onclick=()=>update(ref(db,`rooms/${currentRoomId}/players/${currentPlayerId}`),{tournamentTeam:parseTeamProfile(editor.value)});
   const check=document.getElementById("tournament-checkin"), need=shouldCheckIn(room)&&(!current||current.matches.every(m=>m.winnerId)); check.innerHTML=need?`เช็คอินสำหรับรอบถัดไป (${room.settings.checkIn}) ${amSpectator?"<span class=\"small-text\">ผู้สังเกตการณ์ไม่ต้องเช็คอิน</span>":"<button id=\"btn-checkin\">เช็คอิน</button>"}${t.checkinRequired?" <b>ผู้จัดยังเริ่มไม่ได้: รอผู้เล่นเช็คอิน</b>":""}`:""; document.getElementById("btn-checkin")?.addEventListener("click",()=>tournamentAction("checkin"));
   const pairs=document.getElementById("tournament-pairings");
   if(t.championId) pairs.innerHTML=`<div class="match-card"><h3>👑 แชมป์: ${escapeHtml(room.players[t.championId]?.name||"-")}</h3></div>`;
@@ -479,7 +563,7 @@ function renderTournament(room) {
   document.getElementById("btn-next-round").classList.toggle("hidden",!isHost||!activeTournament||t.phaseComplete); document.getElementById("btn-next-round").onclick=beginNextRound;
   document.getElementById("btn-advance-phase").classList.toggle("hidden",!isHost || !activeTournament || !t.phaseComplete || t.phaseIndex+1>=room.settings.phases.length); document.getElementById("btn-advance-phase").onclick=advanceTournamentPhase;
   document.getElementById("btn-finish-tournament").classList.toggle("hidden",!isHost||!activeTournament); document.getElementById("btn-finish-tournament").onclick=()=>finishTournament(room);
-  const pending=!!t.pendingWithdrawals?.[currentPlayerId]; document.getElementById("btn-withdraw").classList.toggle("hidden",pending||amSpectator); document.getElementById("btn-cancel-withdraw").classList.toggle("hidden",!pending||amSpectator); document.getElementById("btn-withdraw").onclick=()=>tournamentAction("withdraw"); document.getElementById("btn-cancel-withdraw").onclick=()=>tournamentAction("cancelWithdraw");
+  const withdrawn=!!room.players[currentPlayerId]?.withdrawn; const withdrawButton=document.getElementById("btn-withdraw"); withdrawButton.classList.toggle("hidden",withdrawn||amSpectator||!activeTournament); document.getElementById("btn-cancel-withdraw").classList.add("hidden"); withdrawButton.onclick=async()=>{if(!confirm("ยืนยันถอนตัว? คุณจะกลับเข้ารายการนี้ไม่ได้")) return; withdrawButton.disabled=true; const saved=await tournamentAction("withdraw"); if(saved) document.getElementById("admin-call-status").textContent="ถอนตัวสำเร็จแล้ว"; withdrawButton.disabled=false;};
   const table=document.getElementById("tournament-standings"); table.innerHTML=`<tr><th>#</th><th>ผู้เล่น</th><th>ชนะ</th><th>แพ้</th><th>แต้ม</th><th>ทีม</th></tr>`+stats.map((s,i)=>`<tr><td>${i+1}</td><td>${escapeHtml(s.name)}${room.players[s.pid].withdrawn?" (ถอนตัว)":""}</td><td>${s.wins}</td><td>${s.losses}</td><td>${s.points}</td><td>${teamPreviewHtml(room.players[s.pid],`standing-${s.pid}`)}</td></tr>`).join(""); bindTeamToggles(table); renderMetaAnalytics(room);
 }
 
@@ -619,7 +703,7 @@ document.getElementById("btn-start").addEventListener("click", async () => {
 // ---------- Transaction helper ----------
 async function updateRoom(mutator) {
   const roomRef = ref(db, "rooms/" + currentRoomId);
-  await runTransaction(roomRef, (room) => {
+  return runTransaction(roomRef, (room) => {
     if (room === null) return room;
     return mutator(room);
   });
@@ -969,6 +1053,7 @@ function renderGame(room) {
         const amt = a.currentBid + step;
         if (amt <= me.money) {
           const b = document.createElement("button");
+          b.className = "quick-bid";
           b.textContent = `บิด ${amt.toLocaleString()}`;
           b.onclick = () => placeBid(amt);
           controlsDiv.appendChild(b);
@@ -1388,18 +1473,27 @@ document.getElementById("game-chat-input")?.addEventListener("keydown", (e) => {
 });
 
 // ---------- Auto-rejoin ----------
-window.addEventListener("load", async () => {
+let restoringSavedRoom = false;
+async function restoreSavedRoom() {
+  if (restoringSavedRoom || currentRoomId || !currentUser) return;
   const savedRoomId = localStorage.getItem("vgcLab_roomId");
   const savedPlayerId = localStorage.getItem("vgcLab_playerId");
-  if (savedRoomId && savedPlayerId) {
+  if (!savedRoomId || !savedPlayerId) return;
+  restoringSavedRoom = true;
+  try {
     const snap = await get(ref(db, `rooms/${savedRoomId}/players/${savedPlayerId}`));
     if (snap.exists()) {
       const roomSnap = await get(ref(db, `rooms/${savedRoomId}`));
       const room = roomSnap.val();
-      enterLobby(savedRoomId, savedPlayerId, room.hostId === savedPlayerId);
+      if (room) enterLobby(savedRoomId, savedPlayerId, room.hostId === savedPlayerId);
     }
+  } catch (e) {
+    console.warn("restore room failed:", e);
+  } finally {
+    restoringSavedRoom = false;
   }
-});
+}
+window.addEventListener("load", restoreSavedRoom);
 // =====================================================================
 // ระบบคลังทัวร์นาเมนต์ (Archives)
 // =====================================================================
@@ -1820,6 +1914,7 @@ onAuthStateChanged(auth, async (user) => {
   if (!isOwner) archiveEditMode = false;
   updateAuthUI();
   updateCreateRoomGate();
+  if (currentUser) restoreSavedRoom();
   if (isOwner) loadRoleRequests();
   if ((isOrganizer || isStaff) && !roomNotificationsStarted) startOwnTournamentNotifications();
 });
@@ -1847,7 +1942,7 @@ function updateAuthUI() {
   document.getElementById("admin-spectate-box")?.classList.toggle("hidden", !isOwner);
   const requestBtn = document.getElementById("btn-request-role");
   requestBtn?.classList.toggle("hidden", !currentUser || isOwner || isOrganizer || isStaff);
-  document.getElementById("btn-open-organizer-dashboard")?.classList.toggle("hidden", !isOrganizer && !isOwner);
+  document.getElementById("btn-open-organizer-dashboard")?.classList.toggle("hidden", !isOrganizer && !isOwner && !isStaff);
   document.getElementById("role-request-status")?.classList.add("hidden");
   if (isOwner) loadAdminList();
   if (latestRoom && latestRoom.status === "finished") renderArchiveBox(latestRoom);
@@ -1869,7 +1964,8 @@ document.getElementById("btn-login").addEventListener("click", async () => {
 document.getElementById("btn-logout").addEventListener("click", () => signOut(auth));
 
 document.getElementById("btn-open-organizer-dashboard")?.addEventListener("click", () => {
-  const roomId = prompt("กรอกรหัสห้องทัวร์นาเมนต์ที่คุณสร้าง");
+  if (!isOwner && !isOrganizer && !isStaff) return;
+  const roomId = prompt(isStaff ? "กรอกรหัสห้องทัวร์นาเมนต์ในสังกัดที่คุณดูแล" : "กรอกรหัสห้องทัวร์นาเมนต์ที่คุณสร้าง");
   if (roomId) openSpectate(roomId.trim().toUpperCase());
 });
 
@@ -2029,6 +2125,7 @@ async function openSpectate(roomId) {
   screenSpectate.classList.remove("hidden");
   document.getElementById("spectate-room-code-title").textContent = roomId;
   spectateRoomId = roomId;
+  syncAdminCallDrawer(roomSnap.val(), roomId);
 
   onValue(ref(db, "rooms/" + roomId), (snap) => {
     const strip = document.getElementById("spectate-players-strip");
@@ -2047,7 +2144,7 @@ async function openSpectate(roomId) {
   onValue(ref(db, `rooms/${roomId}/adminChat`), snap => renderChatMessages(document.getElementById("spectate-chat-messages"), snap.val()));
   onValue(ref(db, `rooms/${roomId}/adminCalls`), snap => {
     const calls=Object.values(snap.val()||{}).filter(c=>c.status!=="closed").sort((a,b)=>b.time-a.time);
-    document.getElementById("spectate-admin-calls").innerHTML=calls.length?`<b>🆘 คำขอเรียกแอดมิน</b>${calls.map(c=>`<div>${escapeHtml(c.name)} — ${formatTournamentDate(c.time)}</div>`).join("")}`:"<span class=\"small-text\">ไม่มีคำขอเรียกแอดมิน</span>";
+    document.getElementById("spectate-admin-calls").innerHTML=calls.length?`<b>🆘 คำขอเรียกแอดมิน</b>${calls.map(c=>`<div>${escapeHtml(c.matchLabel || "คำขอทั่วไป")}: ${escapeHtml(c.name)} — ${formatTournamentDate(c.time)}</div>`).join("")}`:"<span class=\"small-text\">ไม่มีคำขอเรียกแอดมิน</span>";
   });
   mountSpectateMatchChats(roomId, roomSnap.val());
 }
@@ -2113,10 +2210,6 @@ async function loadRoleRequests() {
       loadRoleRequests();
     }));
   } catch (e) { console.error("load role requests error:", e); }
-}
-
-function canManageRoom(room) {
-  return !!room && (isOwner || (isOrganizer && room.creatorUid === currentUser?.uid));
 }
 
 function startOwnTournamentNotifications() {
