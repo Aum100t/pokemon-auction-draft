@@ -592,7 +592,7 @@ function renderTournament(room) {
   const check=document.getElementById("tournament-checkin"), need=shouldCheckIn(room)&&(!current||current.matches.every(m=>m.winnerId)); check.innerHTML=need?`เช็คอินสำหรับรอบถัดไป (${room.settings.checkIn}) ${amSpectator?"<span class=\"small-text\">ผู้สังเกตการณ์ไม่ต้องเช็คอิน</span>":"<button id=\"btn-checkin\">เช็คอิน</button>"}${t.checkinRequired?" <b>ผู้จัดยังเริ่มไม่ได้: รอผู้เล่นเช็คอิน</b>":""}`:""; document.getElementById("btn-checkin")?.addEventListener("click",()=>tournamentAction("checkin"));
   const pairs=document.getElementById("tournament-pairings");
   if(t.championId) pairs.innerHTML=`<div class="match-card"><h3>👑 แชมป์: ${escapeHtml(room.players[t.championId]?.name||"-")}</h3></div>`;
-  else if(!current) pairs.innerHTML=`<p class="small-text">ผู้จัดกด “เริ่มรอบต่อไป” เพื่อสร้างคู่แข่งขัน รอบจะไม่ถูกสร้างอัตโนมัติ</p>`;
+  else if(!current) { pairs.innerHTML=`<p class="small-text">กำลังสร้างคู่แข่งขันรอบแรก...</p>`; ensureFirstTournamentRound(); }
   else pairs.innerHTML=`<h3>รอบ ${current.round} — ${tournamentLabel(current.format)}</h3>`+current.matches.map((m,i)=>{const a=room.players[m.player1Id]?.name||"-",b=m.player2Id?room.players[m.player2Id]?.name:"BYE",canReport=isHost||currentPlayerId===m.player1Id||currentPlayerId===m.player2Id,chatId=`match-chat-${t.history.length-1}-${i}`; const scoreOptions=room.settings.bestOf==="BO3"?'<option value="2-0">2-0</option><option value="2-1">2-1</option><option value="1-2">1-2</option><option value="0-2">0-2</option>':'<option value="1-0">1-0</option><option value="0-1">0-1</option>'; const controls=canReport&&!m.isBye&&!m.winnerId?`<div class="report-controls score-entry"><label>สกอร์ (${escapeHtml(a)} - ${escapeHtml(b)})<select data-score-match="${i}">${scoreOptions}</select></label><button data-save-result="${i}">บันทึกผล</button></div>`:""; const chat=canReport&&!m.isBye?`<div class="match-chat"><b>💬 แชทเฉพาะคู่แข่งขัน</b><div class="chat-messages" id="${chatId}-messages"></div><div class="chat-input-row"><input id="${chatId}-input" maxlength="300" placeholder="คุยกับคู่แข่ง"><button id="${chatId}-send">ส่ง</button></div></div>`:""; const pending=m.pendingWinnerId?`รายงาน: ${escapeHtml(room.players[m.pendingWinnerId]?.name||"")} ชนะ (${m.pendingScore||"-"}) — แก้ไขได้ 10 วินาที` : "รอรายงานผล";return `<div class="match-card"><div class="match-players"><span>${escapeHtml(a)}</span><span class="vs">VS</span><span>${escapeHtml(b)}</span></div><p class="small-text">${m.isBye?"ชนะบาย":m.winnerId?`ผู้ชนะ: ${escapeHtml(room.players[m.winnerId]?.name||"")} (${m.score||"-"})`:pending}</p>${controls}${teamPreviewHtml(room.players[m.player1Id],`match-${i}-a`)}${m.player2Id?teamPreviewHtml(room.players[m.player2Id],`match-${i}-b`):""}${chat}</div>`}).join("");
   pairs.querySelectorAll("button[data-save-result]").forEach(button=>button.addEventListener("click",()=>{const matchIndex=+button.dataset.saveResult,match=current.matches[matchIndex],score=pairs.querySelector(`[data-score-match="${matchIndex}"]`)?.value;const winner=String(score).startsWith("2")||score==="1-0"?match.player1Id:match.player2Id;tournamentAction("result",{round:t.history.length-1,match:matchIndex,winner,score});}));
   bindTeamToggles(pairs);
@@ -604,6 +604,26 @@ function renderTournament(room) {
   document.getElementById("btn-finish-tournament").classList.toggle("hidden",!isHost||!activeTournament); document.getElementById("btn-finish-tournament").onclick=()=>finishTournament(room);
   const withdrawn=!!room.players[currentPlayerId]?.withdrawn; const withdrawButton=document.getElementById("btn-withdraw"); withdrawButton.classList.toggle("hidden",withdrawn||amSpectator||!activeTournament); document.getElementById("btn-cancel-withdraw").classList.add("hidden"); withdrawButton.onclick=async()=>{if(!confirm("ยืนยันถอนตัว? คุณจะกลับเข้ารายการนี้ไม่ได้")) return; withdrawButton.disabled=true; const saved=await tournamentAction("withdraw"); if(saved) document.getElementById("admin-call-status").textContent="ถอนตัวสำเร็จแล้ว"; withdrawButton.disabled=false;};
   const table=document.getElementById("tournament-standings"); table.innerHTML=`<tr><th>#</th><th>ผู้เล่น</th><th>ชนะ</th><th>แพ้</th><th>แต้ม</th><th>ทีม</th></tr>`+stats.map((s,i)=>`<tr><td>${i+1}</td><td>${escapeHtml(s.name)}${room.players[s.pid].withdrawn?" (ถอนตัว)":""}</td><td>${s.wins}</td><td>${s.losses}</td><td>${s.points}</td><td>${teamPreviewHtml(room.players[s.pid],`standing-${s.pid}`)}</td></tr>`).join(""); bindTeamToggles(table); renderMetaAnalytics(room);
+}
+
+// Rooms created by earlier versions had an empty tournament history.  Upgrade
+// those rooms in place when their host opens them, so nobody has to re-create a room.
+async function ensureFirstTournamentRound() {
+  await updateRoom(room => {
+    if (!room || room.status !== "tournament" || currentPlayerId !== room.hostId) return room;
+    const tournament = room.tournament;
+    if (!tournament || tournament.history?.length) return room;
+    const phase = room.settings?.phases?.[tournament.phaseIndex || 0] || "swiss";
+    const ids = tournament.phaseParticipants?.length ? tournament.phaseParticipants : activePlayerIds(room);
+    const weeklySchedule = phase === "roundRobin"
+      ? (tournament.weeklySchedule?.length ? tournament.weeklySchedule : generateRoundRobinSchedule(ids))
+      : [];
+    tournament.weeklySchedule = weeklySchedule;
+    tournament.history = [{ phaseIndex:tournament.phaseIndex || 0, round:1, format:phase, matches:phase === "roundRobin" ? (weeklySchedule[0]?.matches || []) : makePairs(ids) }];
+    tournament.round = 0;
+    tournament.started = true;
+    return room;
+  });
 }
 
 function renderTournamentWeeklySchedule(room, tournament, phase) {
