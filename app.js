@@ -2135,6 +2135,7 @@ async function openSpectate(roomId) {
   if (!canManageRoom(roomSnap.val())) { alert("คุณดูแลได้เฉพาะทัวร์นาเมนต์ที่คุณสร้างเอง"); return; }
   hideAllTopScreens();
   screenSpectate.classList.remove("hidden");
+  setSpectateTab("matches");
   document.getElementById("spectate-room-code-title").textContent = roomId;
   spectateRoomId = roomId;
   syncAdminCallDrawer(roomSnap.val(), roomId);
@@ -2147,6 +2148,7 @@ async function openSpectate(roomId) {
       <div class="player-chip"><div>${escapeHtml(p.name)}${p.isHost ? ' 👑' : ''}</div>
       <div class="p-money">💰${(p.money||0).toLocaleString()} | 🎒${(p.team||[]).length}</div></div>`).join("");
     renderSpectateStandings(room);
+    renderSpectateDraftTeams(room);
     const signature = JSON.stringify((room.tournament?.history || []).map(round => (round.matches || []).map(match => [match.player1Id, match.player2Id, match.winnerId, match.score])));
     if (signature !== spectateMatchSignature) {
       spectateMatchSignature = signature;
@@ -2200,6 +2202,15 @@ function renderSpectateStandings(room) {
   table.innerHTML = `<tr><th>#</th><th>ผู้เล่น</th><th>แข่ง</th><th>ชนะ</th><th>แพ้</th><th>แต้ม</th></tr>${standings.map((player, index) => `<tr><td>${index + 1}</td><td>${escapeHtml(player.name)}${room.players?.[player.pid]?.withdrawn ? " (ถอนตัว)" : ""}</td><td>${player.played}</td><td>${player.wins}</td><td>${player.losses}</td><td><b>${player.points}</b></td></tr>`).join("") || '<tr><td colspan="6" class="small-text">ยังไม่มีผู้เล่น</td></tr>'}`;
 }
 
+function renderSpectateDraftTeams(room) {
+  const grid = document.getElementById("spectate-draft-teams");
+  if (!grid) return;
+  grid.innerHTML = Object.entries(room.players || {}).map(([playerId, player]) => {
+    const team = player.team || [];
+    return `<article class="team-summary-card"><h4>${escapeHtml(player.name)}${playerId === room.hostId ? ' <span class="badge">HOST</span>' : ''}</h4><p class="small-text">ได้แล้ว ${team.length}/${room.settings?.teamSize || 10} ตัว</p><div class="my-team">${team.map(member => teamSlotHtml(member)).join("") || '<span class="small-text">ยังไม่มีโปเกม่อนจากการประมูล</span>'}</div></article>`;
+  }).join("") || '<p class="small-text">ยังไม่มีผู้เล่นในห้อง</p>';
+}
+
 async function saveAdminMatchResult(roomId, roundIndex, matchIndex, winnerId, score) {
   const roomSnap = await get(ref(db, `rooms/${roomId}`));
   const room = roomSnap.val();
@@ -2233,6 +2244,16 @@ document.getElementById("btn-spectate-chat-send")?.addEventListener("click", () 
   });
   input.value = "";
 });
+
+function setSpectateTab(tab) {
+  const showMatches = tab === "matches";
+  document.getElementById("spectate-tab-matches")?.classList.toggle("active", showMatches);
+  document.getElementById("spectate-tab-teams")?.classList.toggle("active", !showMatches);
+  document.getElementById("spectate-matches-section")?.classList.toggle("hidden", !showMatches);
+  document.getElementById("spectate-teams-section")?.classList.toggle("hidden", showMatches);
+}
+document.getElementById("spectate-tab-matches")?.addEventListener("click", () => setSpectateTab("matches"));
+document.getElementById("spectate-tab-teams")?.addEventListener("click", () => setSpectateTab("teams"));
 document.getElementById("spectate-chat-input")?.addEventListener("keydown", (e) => {
   if (e.key === "Enter") document.getElementById("btn-spectate-chat-send").click();
 });

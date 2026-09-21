@@ -47,6 +47,7 @@
 .admin-result-form { display:grid; grid-template-columns:minmax(160px,1fr) minmax(90px,.45fr) auto; gap:8px; align-items:center; margin:10px 0; padding:10px; border-radius:9px; background:rgba(88,182,255,.08); }
 .admin-result-form .small-text { grid-column:1/-1; }
 .admin-result-form select { margin:0; padding:9px; }
+.team-summary-card .my-team { margin-top:10px; }
 
 /* ===== VGC Lab visual system / screen routing ===== */
 :root { --navy:#08162d; --panel:#102445; --panel-2:#15335d; --line:rgba(166,204,255,.18); --ink:#edf5ff; --muted:#abc0db; --blue:#58b6ff; --gold:#ffd45a; --danger:#f66d83; }

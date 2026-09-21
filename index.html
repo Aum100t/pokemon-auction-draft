@@ -301,6 +301,11 @@
       <h3 style="margin-top:0;">📊 ตารางคะแนนสด</h3>
       <table class="standings-table" id="spectate-standings-table"></table>
     </section>
+    <div class="section-tabs">
+      <button class="section-tab-btn active" id="spectate-tab-matches">⚔️ ตารางการแข่งขัน</button>
+      <button class="section-tab-btn" id="spectate-tab-teams">🎒 ทีมจากการประมูล</button>
+    </div>
+    <div id="spectate-matches-section">
     <div id="spectate-admin-calls" class="admin-help"></div>
     <div class="chat-box">
       <h3 style="margin-bottom:10px;">💬 แชททีมงาน</h3>
@@ -313,6 +318,11 @@
     <div class="chat-box">
       <h3 style="margin-bottom:10px;">📝 กรอกผลและดูแชทแต่ละคู่แข่งขัน</h3>
       <div id="spectate-match-chats" class="match-chat-list"></div>
+    </div>
+    </div>
+    <div id="spectate-teams-section" class="hidden">
+      <p class="small-text">แสดงโปเกม่อนที่ผู้เล่นประมูลหรือได้รับระหว่างดราฟต์</p>
+      <div class="teams-summary-grid" id="spectate-draft-teams"></div>
     </div>
   </div>
 </div>
