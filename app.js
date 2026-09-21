@@ -486,7 +486,7 @@ function tournamentTeamOf(player) {
 function profileOf(player) { return tournamentTeamOf(player); }
 function teamPreviewHtml(player, key) {
   const profile=profileOf(player); if(!profile.length) return `<p class="small-text">ยังไม่ได้บันทึกข้อมูลทีม</p>`;
-  return `<button class="team-toggle" data-team-toggle="${key}">👁️ ดูภาพรวมทีม</button><div id="team-preview-${key}" class="team-preview hidden">${profile.map(p=>`<div><b>${escapeHtml(p.pokemon)}</b>${p.item?` — ${escapeHtml(p.item)}`:""}${p.nature?` (${escapeHtml(p.nature)})`:""}${p.moves?.length?`<br><span class="small-text">${p.moves.map(escapeHtml).join(" · ")}</span>`:""}</div>`).join("")}</div>`;
+  return `<button class="team-toggle" data-team-toggle="${key}">👁️ ดูทีมของ ${escapeHtml(player?.name || "ผู้เล่น")}</button><div id="team-preview-${key}" class="team-preview hidden"><b class="team-preview-owner">ทีมของ ${escapeHtml(player?.name || "ผู้เล่น")}</b>${profile.map(p=>`<div><b>${escapeHtml(p.pokemon)}</b>${p.item?` — ${escapeHtml(p.item)}`:""}${p.nature?` (${escapeHtml(p.nature)})`:""}${p.moves?.length?`<br><span class="small-text">${p.moves.map(escapeHtml).join(" · ")}</span>`:""}</div>`).join("")}</div>`;
 }
 function bindTeamToggles(root) { root.querySelectorAll("button[data-team-toggle]").forEach(btn=>btn.addEventListener("click",()=>document.getElementById("team-preview-"+btn.dataset.teamToggle)?.classList.toggle("hidden"))); }
 function renderMetaAnalytics(room) {
@@ -589,12 +589,24 @@ function renderTournament(room) {
   if(room.status === "tournament") mountAdminChat(room);
   syncAdminCallDrawer(room);
   const editor=document.getElementById("team-profile-input"); editor?.closest(".team-editor")?.classList.add("hidden");
-  const check=document.getElementById("tournament-checkin"), need=shouldCheckIn(room)&&(!current||current.matches.every(m=>m.winnerId)); check.innerHTML=need?`เช็คอินสำหรับรอบถัดไป (${room.settings.checkIn}) ${amSpectator?"<span class=\"small-text\">ผู้สังเกตการณ์ไม่ต้องเช็คอิน</span>":"<button id=\"btn-checkin\">เช็คอิน</button>"}${t.checkinRequired?" <b>ผู้จัดยังเริ่มไม่ได้: รอผู้เล่นเช็คอิน</b>":""}`:""; document.getElementById("btn-checkin")?.addEventListener("click",()=>tournamentAction("checkin"));
+  const check=document.getElementById("tournament-checkin"), need=shouldCheckIn(room)&&(!current||current.matches.every(m=>m.winnerId)), checkedCount=Object.keys(t.checkins||{}).filter(pid=>t.checkins[pid]).length, eligibleCount=activePlayerIds(room).length; check.innerHTML=need?`<div class="checkin-content"><span class="checkin-icon">✅</span><div><b>เช็คอินสำหรับรอบถัดไป</b><span class="small-text">${checkedCount}/${eligibleCount} คนเช็คอินแล้ว • ${room.settings.checkIn}</span></div>${amSpectator?"<span class=\"small-text\">ผู้สังเกตการณ์ไม่ต้องเช็คอิน</span>":`<button id="btn-checkin" ${t.checkins?.[currentPlayerId]?"disabled":""}>${t.checkins?.[currentPlayerId]?"เช็คอินแล้ว ✓":"เช็คอิน"}</button>`}</div>${t.checkinRequired?"<p class=\"checkin-warning\">รอผู้เล่นเช็คอินก่อนเริ่มรอบถัดไป</p>":""}`:""; document.getElementById("btn-checkin")?.addEventListener("click",()=>tournamentAction("checkin"));
   const pairs=document.getElementById("tournament-pairings");
   if(t.championId) pairs.innerHTML=`<div class="match-card"><h3>👑 แชมป์: ${escapeHtml(room.players[t.championId]?.name||"-")}</h3></div>`;
   else if(!current) { pairs.innerHTML=`<p class="small-text">กำลังสร้างคู่แข่งขันรอบแรก...</p>`; ensureFirstTournamentRound(); }
   else pairs.innerHTML=`<h3>รอบ ${current.round} — ${tournamentLabel(current.format)}</h3>`+current.matches.map((m,i)=>{const a=room.players[m.player1Id]?.name||"-",b=m.player2Id?room.players[m.player2Id]?.name:"BYE",canReport=isHost||currentPlayerId===m.player1Id||currentPlayerId===m.player2Id,chatId=`match-chat-${t.history.length-1}-${i}`; const scoreOptions=room.settings.bestOf==="BO3"?'<option value="2-0">2-0</option><option value="2-1">2-1</option><option value="1-2">1-2</option><option value="0-2">0-2</option>':'<option value="1-0">1-0</option><option value="0-1">0-1</option>'; const controls=canReport&&!m.isBye&&!m.winnerId?`<div class="report-controls score-entry"><label>สกอร์ (${escapeHtml(a)} - ${escapeHtml(b)})<select data-score-match="${i}">${scoreOptions}</select></label><button data-save-result="${i}">บันทึกผล</button></div>`:""; const chat=canReport&&!m.isBye?`<div class="match-chat"><b>💬 แชทเฉพาะคู่แข่งขัน</b><div class="chat-messages" id="${chatId}-messages"></div><div class="chat-input-row"><input id="${chatId}-input" maxlength="300" placeholder="คุยกับคู่แข่ง"><button id="${chatId}-send">ส่ง</button></div></div>`:""; const pending=m.pendingWinnerId?`รายงาน: ${escapeHtml(room.players[m.pendingWinnerId]?.name||"")} ชนะ (${m.pendingScore||"-"}) — แก้ไขได้ 10 วินาที` : "รอรายงานผล";return `<div class="match-card"><div class="match-players"><span>${escapeHtml(a)}</span><span class="vs">VS</span><span>${escapeHtml(b)}</span></div><p class="small-text">${m.isBye?"ชนะบาย":m.winnerId?`ผู้ชนะ: ${escapeHtml(room.players[m.winnerId]?.name||"")} (${m.score||"-"})`:pending}</p>${controls}${teamPreviewHtml(room.players[m.player1Id],`match-${i}-a`)}${m.player2Id?teamPreviewHtml(room.players[m.player2Id],`match-${i}-b`):""}${chat}</div>`}).join("");
   pairs.querySelectorAll("button[data-save-result]").forEach(button=>button.addEventListener("click",()=>{const matchIndex=+button.dataset.saveResult,match=current.matches[matchIndex],score=pairs.querySelector(`[data-score-match="${matchIndex}"]`)?.value;const winner=String(score).startsWith("2")||score==="1-0"?match.player1Id:match.player2Id;tournamentAction("result",{round:t.history.length-1,match:matchIndex,winner,score});}));
+  current?.matches.forEach((match, index) => {
+    const card = pairs.querySelectorAll(".match-card")[index];
+    const players = card?.querySelectorAll(".match-players span:not(.vs)");
+    if (!match.isBye && match.winnerId && players?.length === 2) {
+      players[0].classList.add(match.winnerId === match.player1Id ? "winner-name" : "loser-name");
+      players[1].classList.add(match.winnerId === match.player2Id ? "winner-name" : "loser-name");
+    }
+    if (match.pendingWinnerId && !match.winnerId) {
+      const status = card?.querySelector(".small-text");
+      if (status) status.innerHTML = `⏳ รอยืนยันผล: <b>${escapeHtml(room.players[match.pendingWinnerId]?.name || "")}</b> ชนะ (${escapeHtml(match.pendingScore || "-")}) <span class="pending-countdown" data-pending-until="${(match.reportedAt || Date.now()) + 10000}"></span>`;
+    }
+  });
   bindTeamToggles(pairs);
   current?.matches.forEach((m,i)=>mountMatchChat(room,t.history.length-1,i,isHost||currentPlayerId===m.player1Id||currentPlayerId===m.player2Id));
   renderTournamentWeeklySchedule(room, t, phase);
@@ -603,8 +615,33 @@ function renderTournament(room) {
   document.getElementById("btn-advance-phase").classList.toggle("hidden",!isHost || !activeTournament || !t.phaseComplete || t.phaseIndex+1>=room.settings.phases.length); document.getElementById("btn-advance-phase").onclick=advanceTournamentPhase;
   document.getElementById("btn-finish-tournament").classList.toggle("hidden",!isHost||!activeTournament); document.getElementById("btn-finish-tournament").onclick=()=>finishTournament(room);
   const withdrawn=!!room.players[currentPlayerId]?.withdrawn; const withdrawButton=document.getElementById("btn-withdraw"); withdrawButton.classList.toggle("hidden",withdrawn||amSpectator||!activeTournament); document.getElementById("btn-cancel-withdraw").classList.add("hidden"); withdrawButton.onclick=async()=>{if(!confirm("ยืนยันถอนตัว? คุณจะกลับเข้ารายการนี้ไม่ได้")) return; withdrawButton.disabled=true; const saved=await tournamentAction("withdraw"); if(saved) document.getElementById("admin-call-status").textContent="ถอนตัวสำเร็จแล้ว"; withdrawButton.disabled=false;};
-  const table=document.getElementById("tournament-standings"); table.innerHTML=`<tr><th>#</th><th>ผู้เล่น</th><th>ชนะ</th><th>แพ้</th><th>แต้ม</th><th>ทีม</th></tr>`+stats.map((s,i)=>`<tr><td>${i+1}</td><td>${escapeHtml(s.name)}${room.players[s.pid].withdrawn?" (ถอนตัว)":""}</td><td>${s.wins}</td><td>${s.losses}</td><td>${s.points}</td><td>${teamPreviewHtml(room.players[s.pid],`standing-${s.pid}`)}</td></tr>`).join(""); bindTeamToggles(table); renderMetaAnalytics(room);
+  const table=document.getElementById("tournament-standings"); table.innerHTML=`<tr><th>#</th><th>ผู้เล่น</th><th>ชนะ</th><th>แพ้</th><th>แต้ม</th><th>ทีม</th></tr>`+stats.map((s,i)=>`<tr><td>${i+1}</td><td>${escapeHtml(s.name)}${room.players[s.pid].withdrawn?" (ถอนตัว)":""}</td><td>${s.wins}</td><td>${s.losses}</td><td>${s.points}</td><td>${teamPreviewHtml(room.players[s.pid],`standing-${s.pid}`)}</td></tr>`).join(""); bindTeamToggles(table);
 }
+
+let lastPendingResultCommit = 0;
+function updatePendingResultCountdowns() {
+  document.querySelectorAll(".pending-countdown[data-pending-until]").forEach(el => {
+    const remaining = Math.max(0, Math.ceil((Number(el.dataset.pendingUntil) - Date.now()) / 1000));
+    el.textContent = remaining ? `• ยืนยันอัตโนมัติใน ${remaining} วินาที` : "• กำลังยืนยันผล...";
+  });
+}
+async function confirmExpiredPendingResults() {
+  if (!isHost || !currentRoomId || Date.now() - lastPendingResultCommit < 1000) return;
+  lastPendingResultCommit = Date.now();
+  await updateRoom(room => {
+    if (room.status !== "tournament" || currentPlayerId !== room.hostId) return room;
+    (room.tournament?.history || []).forEach(round => round.matches.forEach(match => {
+      if (!match.winnerId && match.pendingWinnerId && Date.now() - (match.reportedAt || 0) >= 10000) {
+        match.winnerId = match.pendingWinnerId; match.score = match.pendingScore; match.pendingWinnerId = null; match.pendingScore = null;
+      }
+    }));
+    return room;
+  });
+}
+setInterval(() => {
+  updatePendingResultCountdowns();
+  if (latestRoom?.tournament && !screenTournament.classList.contains("hidden")) confirmExpiredPendingResults();
+}, 250);
 
 // Rooms created by earlier versions had an empty tournament history.  Upgrade
 // those rooms in place when their host opens them, so nobody has to re-create a room.
