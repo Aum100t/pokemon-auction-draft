@@ -94,6 +94,7 @@ button:disabled { cursor:not-allowed; opacity:.48; }
 .player-list { padding:0; list-style:none; }
 .player-list li { display:flex; justify-content:space-between; margin:7px 0; padding:10px 12px; border-radius:9px; background:rgba(255,255,255,.055); }
 .badge { display:inline-block; margin-left:7px; padding:3px 7px; border-radius:999px; background:var(--gold); color:#172740; font-size:.68rem; font-weight:900; }
+.team-sheet-ready { background:#7ce6b1; color:#073421; }.team-sheet-missing { background:#ffd45a; color:#5d3a00; }
 .game-header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-bottom:15px; border-bottom:1px solid var(--line); }
 .my-status,.players-strip { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; margin:16px 0; }
 .status-box,.player-chip { padding:13px; border-radius:12px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.05); }
