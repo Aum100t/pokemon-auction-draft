@@ -179,6 +179,13 @@ document.getElementById("btn-join").addEventListener("click", async () => {
   if (!snapshot.exists()) { homeError.textContent = "ไม่พบห้องนี้"; return; }
 
   const room = snapshot.val();
+  // ผู้เล่นที่ออกจากหน้าห้องระหว่างทัวร์นาเมนต์ กลับเข้ามาด้วยบัญชีเดิมได้
+  const existingEntry = Object.entries(room.players || {}).find(([, player]) => player?.userUid === currentUser.uid);
+  if (room.status !== "waiting" && existingEntry) {
+    const [existingPlayerId, existingPlayer] = existingEntry;
+    enterLobby(code, existingPlayerId, !!existingPlayer.isHost);
+    return;
+  }
   if (room.status !== "waiting") { homeError.textContent = "ห้องนี้เริ่มเกมไปแล้ว"; return; }
 
   const currentPlayers = competitivePlayerIds(room).length;
@@ -1415,9 +1422,11 @@ document.getElementById("btn-new-season").addEventListener("click", async () => 
 });
 
 // ---------- ออกจากห้อง (ใช้ร่วมกันทุกหน้าจอ) ----------
-async function leaveRoom({ confirmFirst = true } = {}) {
+async function leaveRoom({ confirmFirst = true, preservePlayer = false } = {}) {
   if (confirmFirst) {
-    const msg = isHost && latestRoom?.status === "waiting"
+    const msg = preservePlayer
+      ? "ออกจากหน้าห้องใช่หรือไม่? คุณจะไม่ถูกถอนตัว และยังกลับเข้าห้องนี้ได้ภายหลัง"
+      : isHost && latestRoom?.status === "waiting"
       ? "คุณเป็นโฮสต์ ถ้าออกตอนนี้ห้องจะถูกปิดและผู้เล่นทุกคนจะหลุดออก\nยืนยันออกจากห้อง?"
       : "ยืนยันออกจากห้อง? ทีมและข้อมูลของคุณในห้องนี้จะหายไป";
     if (!confirm(msg)) return;
@@ -1430,7 +1439,9 @@ async function leaveRoom({ confirmFirst = true } = {}) {
     if (roomId && playerId) {
       try { await onDisconnect(ref(db, `rooms/${roomId}/players/${playerId}`)).cancel(); } catch (e) {}
 
-      if (isHost && latestRoom?.status === "waiting") {
+      if (preservePlayer) {
+        // สำหรับทัวร์นาเมนต์: ออกจากหน้าห้องเท่านั้น ไม่กระทบผลแข่งหรือรายชื่อผู้เล่น
+      } else if (isHost && latestRoom?.status === "waiting") {
         await set(ref(db, "rooms/" + roomId), null);
       } else {
         await set(ref(db, `rooms/${roomId}/players/${playerId}`), null);
@@ -1454,6 +1465,7 @@ async function leaveRoom({ confirmFirst = true } = {}) {
   const el = document.getElementById(id);
   if (el) el.addEventListener("click", () => leaveRoom());
 });
+document.getElementById("btn-leave-tournament")?.addEventListener("click", () => leaveRoom({ preservePlayer: true }));
 
 // ---------- แชทในห้องเกม (ผู้เล่นทั่วไปพิมพ์คุยกัน) ----------
 document.getElementById("btn-game-chat-send")?.addEventListener("click", () => {
