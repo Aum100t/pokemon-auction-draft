@@ -74,7 +74,6 @@ export const POKEMON_LIST = [
   { id: 68, apiName: "farfetchd", displayName: "Farfetch'd", isMega: false },
   { id: 69, apiName: "farigiraf", displayName: "Farigiraf", isMega: false },
   { id: 70, apiName: "feraligatr", displayName: "Feraligatr", isMega: false },
-  { id: 71, apiName: "fighting", displayName: "Fighting", isMega: false },
   { id: 72, apiName: "flapple", displayName: "Flapple", isMega: false },
   { id: 73, apiName: "flareon", displayName: "Flareon", isMega: false },
   { id: 74, apiName: "floette", displayName: "Floette", isMega: false },

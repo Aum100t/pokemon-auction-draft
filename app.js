@@ -28,14 +28,20 @@ let currentSection = "pool";
 let currentWeekView = 1;
 let latestRoom = null;
 let disconnectCancelled = false;
-// แอดมิน (ตรวจสิทธิ์จริงที่ Firebase Rules — ฝั่งนี้แค่ใช้ซ่อน/โชว์ปุ่ม)
+
+// ระบบสิทธิ์ / บทบาท (ตรวจสิทธิ์จริงที่ Firebase Rules — ฝั่งนี้แค่ใช้ซ่อน/โชว์ปุ่ม)
 let currentUser = null;
-let isAdmin = false;
 let isOwner = false;
+let isCreator = false;
+let isModerator = false;
+let myAffiliation = null;
+let myRoleData = null;
+
 let currentArchiveId = null;
 let currentArchiveData = null;
 let archiveEditMode = false;
 let archivesDirty = false;
+let spectateRoomId = null;
 
 // ---------- DOM ----------
 const screenHome = document.getElementById("screen-home");
@@ -44,6 +50,9 @@ const screenGame = document.getElementById("screen-game");
 const screenPostgame = document.getElementById("screen-postgame");
 const screenArchives = document.getElementById("screen-archives");
 const screenArchiveDetail = document.getElementById("screen-archive-detail");
+const screenSpectate = document.getElementById("screen-spectate");
+const screenTournament = document.getElementById("screen-tournament");
+const screenMyHistory = document.getElementById("screen-my-history");
 
 const tabCreate = document.getElementById("tab-create");
 const tabJoin = document.getElementById("tab-join");
@@ -66,10 +75,50 @@ tabJoin.addEventListener("click", () => {
   homeError.textContent = "";
 });
 
+// ---------- สิทธิ์การใช้งาน (Permissions) ----------
+function canCreateRoom() {
+  return isOwner || isCreator;
+}
+
+function canEditArchive(archive) {
+  if (!archive) return false;
+  if (isOwner) return true;
+  if (isCreator && archive.creatorEmail && currentUser?.email === archive.creatorEmail) return true;
+  if (isModerator && archive.affiliation && myAffiliation && archive.affiliation === myAffiliation) return true;
+  return false;
+}
+
+function canDeleteArchive(archive) {
+  if (!archive) return false;
+  if (isOwner) return true;
+  if (isCreator && archive.creatorEmail && currentUser?.email === archive.creatorEmail) return true;
+  return false; // ผู้ดูแลสังกัดลบไม่ได้
+}
+
+function updateCreateRoomGate() {
+  const allowed = canCreateRoom();
+  document.getElementById("create-gate-msg")?.classList.toggle("hidden", allowed);
+  document.getElementById("form-create")?.classList.toggle("force-hidden", !allowed);
+  if (!allowed && tabCreate.classList.contains("active")) {
+    // ถ้าไม่มีสิทธิ์ ให้สลับไปแท็บเข้าห้องแทน
+  }
+}
+
 // ---------- Create Room ----------
 document.getElementById("btn-create").addEventListener("click", async () => {
+  if (!canCreateRoom()) {
+    homeError.textContent = "คุณไม่มีสิทธิ์สร้างห้อง กรุณาเข้าสู่ระบบด้วยบัญชีที่ได้รับสิทธิ์ผู้สร้างห้อง";
+    return;
+  }
   const name = document.getElementById("create-name").value.trim();
+  const teamText = document.getElementById("create-team").value.trim();
   const maxPlayers = parseInt(document.getElementById("create-max-players").value);
+  const mode = document.getElementById("create-room-mode").value;
+  const phases = [document.getElementById("create-phase-1").value, document.getElementById("create-phase-2").value].filter(Boolean);
+  const bestOf = document.getElementById("create-best-of").value;
+  const checkIn = document.getElementById("create-checkin").value;
+  const swissRounds = parseInt(document.getElementById("create-swiss-rounds").value);
+  const topCut = parseInt(document.getElementById("create-top-cut").value);
   if (!name) { homeError.textContent = "กรุณากรอกชื่อ"; return; }
 
   const roomId = generateRoomCode();
@@ -77,9 +126,13 @@ document.getElementById("btn-create").addEventListener("click", async () => {
 
   const roomData = {
     hostId: playerId,
+    creatorUid: currentUser?.uid || null,
+    creatorEmail: currentUser?.email || null,
+    affiliation: myAffiliation || null,
     status: "waiting",
     settings: {
       maxPlayers: maxPlayers,
+      mode, phases, bestOf, checkIn, topCut, swissRounds,
       startMoney: 10000,
       minBidIncrement: 50,
       timerSeconds: 10,
@@ -88,14 +141,17 @@ document.getElementById("btn-create").addEventListener("click", async () => {
     players: {
       [playerId]: {
         name: name,
+        userUid: currentUser?.uid || null,
         money: 10000,
         isHost: true,
         joinedAt: Date.now(),
         pickTicketUsed: false,
         banTicketUsed: false,
         team: []
+        ,teamText
       }
     },
+    memberUids: { [currentUser.uid]: true },
     createdAt: Date.now()
   };
 
@@ -106,7 +162,9 @@ document.getElementById("btn-create").addEventListener("click", async () => {
 
 // ---------- Join Room ----------
 document.getElementById("btn-join").addEventListener("click", async () => {
+  if (!currentUser) { homeError.textContent = "กรุณาเข้าสู่ระบบก่อนเข้าร่วมห้อง เพื่อคุ้มครองสิทธิ์และแชทของผู้เล่น"; return; }
   const name = document.getElementById("join-name").value.trim();
+  const teamText = document.getElementById("join-team").value.trim();
   const code = document.getElementById("join-code").value.trim().toUpperCase();
   if (!name) { homeError.textContent = "กรุณากรอกชื่อ"; return; }
   if (!code) { homeError.textContent = "กรุณากรอกรหัสห้อง"; return; }
@@ -122,14 +180,17 @@ document.getElementById("btn-join").addEventListener("click", async () => {
   if (currentPlayers >= room.settings.maxPlayers) { homeError.textContent = "ห้องเต็มแล้ว"; return; }
 
   const playerId = generatePlayerId();
+  await update(ref(db, `rooms/${code}/memberUids`), { [currentUser.uid]: true });
   await update(ref(db, `rooms/${code}/players/${playerId}`), {
     name: name,
+    userUid: currentUser?.uid || null,
     money: room.settings.startMoney,
     isHost: false,
     joinedAt: Date.now(),
     pickTicketUsed: false,
     banTicketUsed: false,
     team: []
+    ,teamText
   });
 
   onDisconnect(ref(db, `rooms/${code}/players/${playerId}`)).remove();
@@ -143,8 +204,8 @@ function enterLobby(roomId, playerId, hostStatus) {
   isHost = hostStatus;
   disconnectCancelled = false;
 
-  localStorage.setItem("pokeAuction_roomId", roomId);
-  localStorage.setItem("pokeAuction_playerId", playerId);
+  localStorage.setItem("vgcLab_roomId", roomId);
+  localStorage.setItem("vgcLab_playerId", playerId);
 
   screenHome.classList.add("hidden");
   screenLobby.classList.remove("hidden");
@@ -163,8 +224,8 @@ function enterLobby(roomId, playerId, hostStatus) {
   onValue(ref(db, "rooms/" + roomId), (snapshot) => {
     // ห้องถูกปิด (โฮสต์ออก หรือไม่เหลือผู้เล่น) -> เด้งกลับหน้าแรก
     if (!snapshot.exists()) {
-      localStorage.removeItem("pokeAuction_roomId");
-      localStorage.removeItem("pokeAuction_playerId");
+      localStorage.removeItem("vgcLab_roomId");
+      localStorage.removeItem("vgcLab_playerId");
       alert("ห้องนี้ถูกปิดแล้ว");
       location.reload();
       return;
@@ -179,6 +240,7 @@ function enterLobby(roomId, playerId, hostStatus) {
     }
 
     if (room.status === "waiting") {
+      screenTournament.classList.add("hidden");
       screenGame.classList.add("hidden");
       screenPostgame.classList.add("hidden");
       screenLobby.classList.remove("hidden");
@@ -187,19 +249,41 @@ function enterLobby(roomId, playerId, hostStatus) {
       currentFilter = "all";
       currentSearch = "";
       renderLobby(room);
+    } else if (room.status === "tournament") {
+      screenLobby.classList.add("hidden"); screenGame.classList.add("hidden"); screenPostgame.classList.add("hidden");
+      screenTournament.classList.remove("hidden");
+      document.querySelector(".container").classList.add("game-mode");
+      renderTournament(room);
+    } else if (room.status === "completed") {
+      screenLobby.classList.add("hidden"); screenGame.classList.add("hidden"); screenPostgame.classList.add("hidden");
+      screenTournament.classList.remove("hidden");
+      document.querySelector(".container").classList.add("game-mode");
+      renderTournament(room); saveMyTournamentHistory(room);
     } else if (room.status === "finished") {
+      screenTournament.classList.add("hidden");
       screenLobby.classList.add("hidden");
       screenGame.classList.add("hidden");
       screenPostgame.classList.remove("hidden");
       document.querySelector(".container").classList.add("game-mode");
       renderPostgame(room);
     } else {
+      screenTournament.classList.add("hidden");
       screenLobby.classList.add("hidden");
       screenPostgame.classList.add("hidden");
       screenGame.classList.remove("hidden");
       document.querySelector(".container").classList.add("game-mode");
       renderGame(room);
     }
+  });
+
+  // แชทในห้อง (อัปเดตสดตลอดตั้งแต่ล็อบบี้ยันจบเกม)
+  onValue(ref(db, `rooms/${roomId}/chat`), (snap) => {
+    const val = snap.exists() ? snap.val() : {};
+    const msgs = Object.values(val).sort((a, b) => a.time - b.time);
+    const box = document.getElementById("game-chat-messages");
+    if (!box) return;
+    box.innerHTML = msgs.map(m => `<div class="chat-msg${m.isOwnerMsg ? ' owner-msg' : ''}"><b>${escapeHtml(m.senderName)}:</b> ${escapeHtml(m.text)}</div>`).join("");
+    box.scrollTop = box.scrollHeight;
   });
 }
 
@@ -227,6 +311,144 @@ function renderLobby(room) {
       : "รอผู้เล่น... (อย่างน้อย 2 คน)";
     if (playerIds.length < 2) startBtn.disabled = true;
   }
+}
+
+// ---------- Tournament engine ----------
+function activePlayerIds(room) { return Object.keys(room.players || {}).filter(id => !room.players[id].withdrawn); }
+function tournamentLabel(format) { return ({ swiss:"Swiss", single:"Single Elimination", double:"Double Elimination", roundRobin:"Round Robin" })[format] || format; }
+function makePairs(ids, standings = []) {
+  const ranked = standings.length ? standings.filter(s => ids.includes(s.pid)).map(s => s.pid) : [...ids].sort(() => Math.random() - .5);
+  const pairs = []; for (let i=0;i<ranked.length;i+=2) pairs.push({ player1Id:ranked[i], player2Id:ranked[i+1] || null, isBye:!ranked[i+1], winnerId: ranked[i+1] ? null : ranked[i] }); return pairs;
+}
+function initialTournament(room) {
+  const ids = activePlayerIds(room);
+  return { phaseIndex:0, round:0, started:false, checkins:{}, pendingWithdrawals:{}, history:[], phaseParticipants:ids, championId:null };
+}
+function tournamentStats(room) {
+  const stats = Object.fromEntries(Object.keys(room.players||{}).map(pid => [pid,{pid,name:room.players[pid].name,wins:0,losses:0,points:0,played:0}]));
+  (room.tournament?.history||[]).forEach(round => round.matches.forEach(m => { if (!m.winnerId || m.isBye) return; const loser=m.winnerId===m.player1Id?m.player2Id:m.player1Id; if(stats[m.winnerId]) {stats[m.winnerId].wins++;stats[m.winnerId].points+=3;stats[m.winnerId].played++;} if(stats[loser]) {stats[loser].losses++;stats[loser].played++;} }));
+  return Object.values(stats).sort((a,b)=>b.points-a.points||b.wins-a.wins||a.name.localeCompare(b.name));
+}
+function shouldCheckIn(room) {
+  const t=room.tournament, policy=room.settings.checkIn; return policy === "everyRound" || (policy === "once" && t.round === 0) || (policy === "perPhase" && t.round === 0);
+}
+async function startTournament(roomId) {
+  await runTransaction(ref(db,"rooms/"+roomId), room => { if(!room || room.status !== "waiting") return room; room.status="tournament"; room.tournament=initialTournament(room); return room; });
+}
+function completeTournamentInTransaction(room, winnerId) {
+  room.tournament.championId=winnerId||null; room.status="completed"; room.completedAt=Date.now();
+  // ล้างข้อความทุกประเภททันทีที่ระบบตัดสินว่ารายการจบ
+  room.chat=null; room.matchChats=null; room.adminChat=null; room.adminCalls=null;
+}
+async function beginNextRound() {
+  await updateRoom(room => {
+    if(currentPlayerId !== room.hostId || room.status !== "tournament") return room;
+    const t=room.tournament; if(t.phaseComplete) return room;
+    let format=room.settings.phases[t.phaseIndex];
+    Object.keys(t.pendingWithdrawals||{}).forEach(pid => room.players[pid].withdrawn=true); t.pendingWithdrawals={};
+    let ids=(t.phaseParticipants||activePlayerIds(room)).filter(pid=>!room.players[pid].withdrawn), stats=tournamentStats(room);
+    if (t.started && t.history.length) {
+      const previous=t.history[t.history.length-1];
+      previous.matches.forEach(m => { if(!m.winnerId && m.pendingWinnerId && Date.now()-m.reportedAt >= 10000) {m.winnerId=m.pendingWinnerId;m.score=m.pendingScore;} });
+      const incomplete=previous.matches.some(m=>!m.winnerId); if(incomplete) return room;
+      if(format === "single") ids=previous.matches.filter(m=>m.winnerId).map(m=>m.winnerId);
+      if(format === "double") { t.losses=t.losses||{}; previous.matches.forEach(m=>{if(!m.isBye&&m.winnerId){const loser=m.winnerId===m.player1Id?m.player2Id:m.player1Id;t.losses[loser]=(t.losses[loser]||0)+1;}}); ids=ids.filter(pid=>(t.losses[pid]||0)<2); }
+      const rrRounds=format === "roundRobin" ? generateRoundRobinSchedule(ids).length : 0;
+      const phaseEnded=(format === "single" || format === "double") && ids.length<=1 || (format === "swiss" && t.round+1 >= (room.settings.swissRounds||3)) || (format === "roundRobin" && t.round+1 >= rrRounds);
+      if(phaseEnded) {
+        if(t.phaseIndex+1 < room.settings.phases.length) { t.phaseComplete=true; return room; }
+        const winner=(format === "single" || format === "double") ? ids[0] : tournamentStats(room).filter(s=>!room.players[s.pid].withdrawn)[0]?.pid;
+        completeTournamentInTransaction(room,winner); return room;
+      }
+      else t.round++;
+    }
+    if(shouldCheckIn(room)) { const checked=Object.keys(t.checkins||{}).filter(pid=>t.checkins[pid]); if(!checked.length) {t.checkinRequired=true; return room;} ids=ids.filter(pid=>checked.includes(pid)); t.checkins={}; t.checkinRequired=false; }
+    const matches = format === "roundRobin" ? generateRoundRobinSchedule(ids)[t.round % Math.max(1,ids.length-1)]?.matches || [] : makePairs(ids,stats);
+    t.history.push({phaseIndex:t.phaseIndex,round:t.round+1,format,matches}); t.started=true; return room;
+  });
+}
+async function advanceTournamentPhase() {
+  await updateRoom(room => {
+    if(currentPlayerId!==room.hostId || room.status!=="tournament") return room;
+    const t=room.tournament; if(t.phaseIndex+1 >= room.settings.phases.length) return room;
+    const last=t.history[t.history.length-1]; if(last?.matches.some(m=>!m.winnerId)) return room;
+    // นำอันดับถัดไปมาแทนที่ผู้ถอนตัวทันทีตอนคัด Top
+    Object.keys(t.pendingWithdrawals||{}).forEach(pid=>room.players[pid].withdrawn=true); t.pendingWithdrawals={};
+    const cut=room.settings.topCut||activePlayerIds(room).length;
+    t.phaseParticipants=tournamentStats(room).filter(s=>!room.players[s.pid].withdrawn).slice(0,cut).map(s=>s.pid);
+    t.phaseIndex++; t.round=0; t.history=[]; t.started=false; t.checkins={}; t.phaseComplete=false; return room;
+  });
+}
+async function tournamentAction(action, payload={}) { await updateRoom(room => { const t=room.tournament; if(!t) return room; if(action==='checkin') t.checkins[currentPlayerId]=true; if(action==='withdraw') t.pendingWithdrawals[currentPlayerId]=true; if(action==='cancelWithdraw') delete t.pendingWithdrawals[currentPlayerId]; if(action==='result') { const m=t.history[payload.round]?.matches[payload.match]; const validScore=room.settings.bestOf==="BO3" ? /^(2-[01]|[01]-2)$/.test(payload.score||"") : payload.score==="1-0" || payload.score==="0-1"; const winnerMatchesScore=payload.winner===m?.player1Id ? String(payload.score).startsWith("2")||payload.score==="1-0" : String(payload.score).endsWith("2")||payload.score==="0-1"; if(m&&!m.isBye&&validScore&&winnerMatchesScore&&(currentPlayerId===room.hostId||currentPlayerId===m.player1Id||currentPlayerId===m.player2Id)) { m.pendingWinnerId=payload.winner; m.pendingScore=payload.score; m.reportedAt=Date.now(); m.reportedBy=currentPlayerId; } } return room; }); }
+function parseTeamProfile(text) {
+  return String(text||"").split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => {
+    const [pokemon="", moves="", item="", nature=""] = line.split("|").map(x=>x.trim());
+    return { pokemon, moves:moves.split(",").map(x=>x.trim()).filter(Boolean), item, nature };
+  }).filter(p=>p.pokemon).slice(0, 6);
+}
+function profileOf(player) {
+  if(player.teamProfile?.length) return player.teamProfile;
+  return (player.team||[]).map(p=>({pokemon:p.displayName||p.name||"Pokémon",moves:[],item:"",nature:""}));
+}
+function teamPreviewHtml(player, key) {
+  const profile=profileOf(player); if(!profile.length) return `<p class="small-text">ยังไม่ได้บันทึกข้อมูลทีม</p>`;
+  return `<button class="team-toggle" data-team-toggle="${key}">👁️ ดูภาพรวมทีม</button><div id="team-preview-${key}" class="team-preview hidden">${profile.map(p=>`<div><b>${escapeHtml(p.pokemon)}</b>${p.item?` — ${escapeHtml(p.item)}`:""}${p.nature?` (${escapeHtml(p.nature)})`:""}${p.moves?.length?`<br><span class="small-text">${p.moves.map(escapeHtml).join(" · ")}</span>`:""}</div>`).join("")}</div>`;
+}
+function bindTeamToggles(root) { root.querySelectorAll("button[data-team-toggle]").forEach(btn=>btn.addEventListener("click",()=>document.getElementById("team-preview-"+btn.dataset.teamToggle)?.classList.toggle("hidden"))); }
+function renderMetaAnalytics(room) {
+  const box=document.getElementById("meta-analytics"), content=document.getElementById("meta-content");
+  box.classList.toggle("hidden",room.settings.mode!=="normal"); if(room.settings.mode!=="normal") return;
+  const totals={pokemon:{},moves:{},items:{},natures:{}}, players=Object.values(room.players||{});
+  players.forEach(p=>profileOf(p).forEach(mon=>{const add=(group,value)=>{if(value) totals[group][value]=(totals[group][value]||0)+1;};add("pokemon",mon.pokemon);(mon.moves||[]).forEach(x=>add("moves",x));add("items",mon.item);add("natures",mon.nature);}));
+  const rows=(title,obj,percent)=>`<div><b>${title}</b>${Object.entries(obj).sort((a,b)=>b[1]-a[1]).slice(0,12).map(([name,count])=>`<br>${escapeHtml(name)}: ${count}${percent?` (${Math.round(count/Math.max(1,players.length)*100)}%)`:""}`).join("")||"<br>ยังไม่มีข้อมูล"}</div>`;
+  content.innerHTML=`<div class="meta-grid">${rows("Pokémon usage",totals.pokemon,true)}${rows("Moves",totals.moves)}${rows("Items",totals.items)}${rows("Natures",totals.natures)}</div>`;
+}
+function formatTournamentDate(time) { return new Intl.DateTimeFormat("th-TH",{dateStyle:"full",timeStyle:"short"}).format(new Date(time)); }
+function renderChatMessages(element, messages) { element.innerHTML=Object.values(messages||{}).sort((a,b)=>a.time-b.time).map(m=>`<div class="chat-msg"><b>${escapeHtml(m.name)}:</b> ${escapeHtml(m.text)}</div>`).join(""); element.scrollTop=element.scrollHeight; }
+function mountMatchChat(room, roundIndex, matchIndex, canChat) {
+  if(!canChat) return; const key=`match-chat-${roundIndex}-${matchIndex}`, input=document.getElementById(`${key}-input`), box=document.getElementById(`${key}-messages`); if(!box||!input) return;
+  const chatRef=ref(db,`rooms/${currentRoomId}/matchChats/${roundIndex}/${matchIndex}`); onValue(chatRef,snap=>renderChatMessages(box,snap.val()));
+  document.getElementById(`${key}-send`).onclick=()=>{const text=input.value.trim(); if(text) {push(chatRef,{name:room.players[currentPlayerId]?.name||"ผู้เล่น",text,time:Date.now()});input.value="";}};
+}
+function mountAdminChat(room) {
+  const box=document.getElementById("admin-chat-messages"), input=document.getElementById("admin-chat-input"), chatRef=ref(db,`rooms/${currentRoomId}/adminChat`); onValue(chatRef,snap=>renderChatMessages(box,snap.val()));
+  if(isHost) onValue(ref(db,`rooms/${currentRoomId}/adminCalls`),snap=>{const count=Object.values(snap.val()||{}).filter(c=>c.status!=="closed").length; document.getElementById("admin-call-status").textContent=count?`มีคำขอเรียกแอดมิน ${count} รายการ`:"";});
+  document.getElementById("btn-admin-chat-send").onclick=()=>{const text=input.value.trim();if(text){push(chatRef,{name:room.players[currentPlayerId]?.name||"ผู้เล่น",text,time:Date.now(),senderId:currentPlayerId});input.value="";}};
+  document.getElementById("btn-call-admin").onclick=async()=>{await push(ref(db,`rooms/${currentRoomId}/adminCalls`),{playerId:currentPlayerId,name:room.players[currentPlayerId]?.name||"ผู้เล่น",time:Date.now(),status:"open"});document.getElementById("admin-call-status").textContent="ส่งคำขอเรียกแอดมินแล้ว";};
+}
+async function finishTournament(room) {
+  if(!isHost || !currentRoomId || !confirm("จบทัวร์นาเมนต์และล้างแชททั้งหมดใช่หรือไม่?")) return;
+  const summary={roomId:currentRoomId,finishedAt:Date.now(),organizer:room.players[room.hostId]?.name||"-",format:(room.settings.phases||[]).map(tournamentLabel).join(" → "),champion:room.tournament?.championId?room.players[room.tournament.championId]?.name||"-":"-"};
+  await update(ref(db,`rooms/${currentRoomId}`),{status:"completed",chat:null,matchChats:null,adminChat:null,adminCalls:null,completedAt:summary.finishedAt});
+  if(currentUser?.uid) await set(ref(db,`userHistory/${currentUser.uid}/${currentRoomId}`),{...summary,role:"organizer"});
+}
+async function saveMyTournamentHistory(room) {
+  if(!currentUser?.uid || !currentPlayerId || !room.players[currentPlayerId] || room.historySaved?.[currentPlayerId]) return;
+  const summary={roomId:currentRoomId,finishedAt:room.completedAt||Date.now(),organizer:room.players[room.hostId]?.name||"-",format:(room.settings.phases||[]).map(tournamentLabel).join(" → "),role:currentPlayerId===room.hostId?"organizer":"player"};
+  await update(ref(db,`userHistory/${currentUser.uid}/${currentRoomId}`),summary);
+  await update(ref(db,`rooms/${currentRoomId}/historySaved/${currentPlayerId}`),true);
+}
+function renderTournament(room) {
+  const t=room.tournament||initialTournament(room), phase=room.settings.phases[t.phaseIndex]||"swiss", stats=tournamentStats(room), current=t.history[t.history.length-1];
+  document.getElementById("tournament-room-code").textContent=currentRoomId;
+  document.getElementById("tournament-meta").textContent=`เฟส ${t.phaseIndex+1}/${room.settings.phases.length}: ${tournamentLabel(phase)} • ${room.settings.bestOf} • ผู้เล่นสมัคร ${Object.keys(room.players).length}/${room.settings.maxPlayers}`;
+  document.getElementById("tournament-date").textContent=`เริ่มการแข่งขัน: ${formatTournamentDate(room.createdAt)}${room.completedAt?` • จบ: ${formatTournamentDate(room.completedAt)}`:""}`;
+  if(room.status === "tournament") mountAdminChat(room);
+  const editor=document.getElementById("team-profile-input"); editor.value=profileOf(room.players[currentPlayerId]).map(p=>`${p.pokemon} | ${(p.moves||[]).join(", ")} | ${p.item||""} | ${p.nature||""}`).join("\n"); document.getElementById("btn-save-team-profile").onclick=()=>update(ref(db,`rooms/${currentRoomId}/players/${currentPlayerId}`),{teamProfile:parseTeamProfile(editor.value)});
+  const check=document.getElementById("tournament-checkin"), need=shouldCheckIn(room)&&(!current||current.matches.every(m=>m.winnerId)); check.innerHTML=need?`เช็คอินสำหรับรอบถัดไป (${room.settings.checkIn}) <button id="btn-checkin">เช็คอิน</button>${t.checkinRequired?" <b>ผู้จัดยังเริ่มไม่ได้: รอผู้เล่นเช็คอิน</b>":""}`:""; document.getElementById("btn-checkin")?.addEventListener("click",()=>tournamentAction("checkin"));
+  const pairs=document.getElementById("tournament-pairings");
+  if(t.championId) pairs.innerHTML=`<div class="match-card"><h3>👑 แชมป์: ${escapeHtml(room.players[t.championId]?.name||"-")}</h3></div>`;
+  else if(!current) pairs.innerHTML=`<p class="small-text">ผู้จัดกด “เริ่มรอบต่อไป” เพื่อสร้างคู่แข่งขัน รอบจะไม่ถูกสร้างอัตโนมัติ</p>`;
+  else pairs.innerHTML=`<h3>รอบ ${current.round} — ${tournamentLabel(current.format)}</h3>`+current.matches.map((m,i)=>{const a=room.players[m.player1Id]?.name||"-",b=m.player2Id?room.players[m.player2Id]?.name:"BYE",canReport=isHost||currentPlayerId===m.player1Id||currentPlayerId===m.player2Id,chatId=`match-chat-${t.history.length-1}-${i}`; const controls=canReport&&!m.isBye&&!m.winnerId?`<div class="report-controls"><button data-result="${m.player1Id}" data-match="${i}">${escapeHtml(a)} ชนะ</button><button data-result="${m.player2Id}" data-match="${i}">${escapeHtml(b)} ชนะ</button></div>`:""; const chat=canReport&&!m.isBye?`<div class="match-chat"><b>💬 แชทเฉพาะคู่แข่งขัน</b><div class="chat-messages" id="${chatId}-messages"></div><div class="chat-input-row"><input id="${chatId}-input" maxlength="300" placeholder="คุยกับคู่แข่ง"><button id="${chatId}-send">ส่ง</button></div></div>`:""; const pending=m.pendingWinnerId?`รายงาน: ${escapeHtml(room.players[m.pendingWinnerId]?.name||"")} ชนะ (${m.pendingScore||"-"}) — แก้ไขได้ 10 วินาที` : "รอรายงานผล";return `<div class="match-card"><div class="match-players"><span>${escapeHtml(a)}</span><span class="vs">VS</span><span>${escapeHtml(b)}</span></div><p class="small-text">${m.isBye?"ชนะบาย":m.winnerId?`ผู้ชนะ: ${escapeHtml(room.players[m.winnerId]?.name||"")} (${m.score||"-"})`:pending}</p>${controls}${teamPreviewHtml(room.players[m.player1Id],`match-${i}-a`)}${m.player2Id?teamPreviewHtml(room.players[m.player2Id],`match-${i}-b`):""}${chat}</div>`}).join("");
+  pairs.querySelectorAll("button[data-result]").forEach(b=>b.addEventListener("click",()=>{const match=current.matches[+b.dataset.match],isP1=b.dataset.result===match.player1Id,defaultScore=room.settings.bestOf==="BO3"?(isP1?"2-0":"0-2"):(isP1?"1-0":"0-1");const score=room.settings.bestOf==="BO3"?prompt("กรอกสกอร์ (ผู้เล่นซ้าย-ขวา): 2-0, 2-1, 1-2 หรือ 0-2",defaultScore):defaultScore;if(score!==null)tournamentAction("result",{round:t.history.length-1,match:+b.dataset.match,winner:b.dataset.result,score});}));
+  bindTeamToggles(pairs);
+  current?.matches.forEach((m,i)=>mountMatchChat(room,t.history.length-1,i,isHost||currentPlayerId===m.player1Id||currentPlayerId===m.player2Id));
+  const activeTournament=room.status==="tournament";
+  document.getElementById("btn-next-round").classList.toggle("hidden",!isHost||!activeTournament||t.phaseComplete); document.getElementById("btn-next-round").onclick=beginNextRound;
+  document.getElementById("btn-advance-phase").classList.toggle("hidden",!isHost || !activeTournament || !t.phaseComplete || t.phaseIndex+1>=room.settings.phases.length); document.getElementById("btn-advance-phase").onclick=advanceTournamentPhase;
+  document.getElementById("btn-finish-tournament").classList.toggle("hidden",!isHost||!activeTournament); document.getElementById("btn-finish-tournament").onclick=()=>finishTournament(room);
+  const pending=!!t.pendingWithdrawals?.[currentPlayerId]; document.getElementById("btn-withdraw").classList.toggle("hidden",pending); document.getElementById("btn-cancel-withdraw").classList.toggle("hidden",!pending); document.getElementById("btn-withdraw").onclick=()=>tournamentAction("withdraw"); document.getElementById("btn-cancel-withdraw").onclick=()=>tournamentAction("cancelWithdraw");
+  const table=document.getElementById("tournament-standings"); table.innerHTML=`<tr><th>#</th><th>ผู้เล่น</th><th>ชนะ</th><th>แพ้</th><th>แต้ม</th><th>ทีม</th></tr>`+stats.map((s,i)=>`<tr><td>${i+1}</td><td>${escapeHtml(s.name)}${room.players[s.pid].withdrawn?" (ถอนตัว)":""}</td><td>${s.wins}</td><td>${s.losses}</td><td>${s.points}</td><td>${teamPreviewHtml(room.players[s.pid],`standing-${s.pid}`)}</td></tr>`).join(""); bindTeamToggles(table); renderMetaAnalytics(room);
 }
 
 // ---------- Start Game ----------
@@ -292,7 +514,7 @@ async function fetchSprite(pokemon) {
   return FALLBACK_SPRITE;
 }
 
-// ฟังก์ชันหลักที่หน้าเริ่มเกมเรียกใช้ (เดิมหายไป จึงขึ้น error "fetchPokeData is not defined")
+// ฟังก์ชันหลักที่หน้าเริ่มเกมเรียกใช้
 async function fetchPokeData(pokemon) {
   return {
     id: poolKeyOf(pokemon),
@@ -323,6 +545,13 @@ async function mapWithLimit(items, limit, worker, onProgress) {
 document.getElementById("btn-start").addEventListener("click", async () => {
   if (!isHost || !currentRoomId) return;
   const btn = document.getElementById("btn-start");
+  const current = (await get(ref(db, "rooms/" + currentRoomId))).val();
+  if (current?.settings?.mode === "normal") {
+    btn.disabled = true;
+    btn.textContent = "กำลังเปิดการแข่งขัน...";
+    await startTournament(currentRoomId);
+    return;
+  }
   btn.disabled = true;
   btn.textContent = "กำลังโหลดข้อมูลโปเกม่อน...";
 
@@ -455,7 +684,6 @@ function checkGameEnd(room) {
   const teamSize = room.settings.teamSize;
 
   // 1) ไม่เหลือใครที่บิดได้แล้ว (ทีมเต็ม หรือเงินหมด) -> คนที่ทีมยังไม่เต็มโดนสุ่มโปเกม่อนให้จนครบ
-  //    ตราบใดที่ยังมีคนมีเงิน+ช่องว่าง การประมูลจะดำเนินต่อตามปกติ
   const noOneCanBid = !players.some(p => canStillBid(p, room));
 
   // 2) เหลือผู้เล่นที่ทีมยังไม่เต็มแค่คนเดียว (คนอื่นเต็มหมดแล้ว) -> ไม่มีคู่แข่ง สุ่มให้เต็มเลย
@@ -473,8 +701,8 @@ function checkGameEnd(room) {
     p => p.status !== "available" && p.status !== "auctioning"
   );
   if (noOneCanBid || onlyOneLeft || allFull || poolExhausted) {
-    room.status = "finished";
-    generateLeagueIfNeeded(room);
+    room.status = "tournament";
+    room.tournament = initialTournament(room);
   }
 }
 
@@ -944,7 +1172,6 @@ function computeStandings(room) {
   room.league.weeks.forEach(week => {
     week.matches.forEach(m => {
       if (m.isBye) {
-        // BYE ไม่นับแต้ม ไม่นับแข่ง ไม่นับชนะ
         return;
       }
 
@@ -1076,16 +1303,13 @@ async function leaveRoom({ confirmFirst = true } = {}) {
 
   try {
     if (roomId && playerId) {
-      // ยกเลิก onDisconnect ก่อน จะได้ไม่ไปลบข้อมูลซ้ำทีหลัง
       try { await onDisconnect(ref(db, `rooms/${roomId}/players/${playerId}`)).cancel(); } catch (e) {}
 
       if (isHost && latestRoom?.status === "waiting") {
-        // โฮสต์ออกตอนยังไม่เริ่มเกม -> ปิดห้องทิ้งเลย
         await set(ref(db, "rooms/" + roomId), null);
       } else {
         await set(ref(db, `rooms/${roomId}/players/${playerId}`), null);
 
-        // ถ้าออกแล้วไม่เหลือใครในห้อง ก็ลบห้องทิ้ง กัน DB รก
         const rest = await get(ref(db, `rooms/${roomId}/players`));
         if (!rest.exists() || Object.keys(rest.val() || {}).length === 0) {
           await set(ref(db, "rooms/" + roomId), null);
@@ -1096,8 +1320,8 @@ async function leaveRoom({ confirmFirst = true } = {}) {
     console.error("leaveRoom error:", e);
   }
 
-  localStorage.removeItem("pokeAuction_roomId");
-  localStorage.removeItem("pokeAuction_playerId");
+  localStorage.removeItem("vgcLab_roomId");
+  localStorage.removeItem("vgcLab_playerId");
   location.reload();
 }
 
@@ -1106,10 +1330,27 @@ async function leaveRoom({ confirmFirst = true } = {}) {
   if (el) el.addEventListener("click", () => leaveRoom());
 });
 
+// ---------- แชทในห้องเกม (ผู้เล่นทั่วไปพิมพ์คุยกัน) ----------
+document.getElementById("btn-game-chat-send")?.addEventListener("click", () => {
+  const input = document.getElementById("game-chat-input");
+  const text = input.value.trim();
+  if (!text || !currentRoomId) return;
+  push(ref(db, `rooms/${currentRoomId}/chat`), {
+    senderName: latestRoom?.players?.[currentPlayerId]?.name || "ผู้เล่น",
+    text,
+    time: Date.now(),
+    isOwnerMsg: false
+  });
+  input.value = "";
+});
+document.getElementById("game-chat-input")?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") document.getElementById("btn-game-chat-send").click();
+});
+
 // ---------- Auto-rejoin ----------
 window.addEventListener("load", async () => {
-  const savedRoomId = localStorage.getItem("pokeAuction_roomId");
-  const savedPlayerId = localStorage.getItem("pokeAuction_playerId");
+  const savedRoomId = localStorage.getItem("vgcLab_roomId");
+  const savedPlayerId = localStorage.getItem("vgcLab_playerId");
   if (savedRoomId && savedPlayerId) {
     const snap = await get(ref(db, `rooms/${savedRoomId}/players/${savedPlayerId}`));
     if (snap.exists()) {
@@ -1121,10 +1362,6 @@ window.addEventListener("load", async () => {
 });
 // =====================================================================
 // ระบบคลังทัวร์นาเมนต์ (Archives)
-// - บันทึกผลของรอบที่ประมูลเสร็จแล้วไว้ที่ /archives/{archiveId} (แยกจาก /rooms)
-// - ใครก็เข้ามาดูได้จากหน้าแรก โดยไม่ต้องมีรหัสห้อง
-// - โฮสต์กด "บันทึก" ครั้งแรกเพื่อตั้งชื่อ จากนั้นกด "อัปเดตผลล่าสุด" ได้เรื่อย ๆ
-//   (เช่น หลังจากกรอกผลแข่งแต่ละสัปดาห์เพิ่ม)
 // =====================================================================
 
 function renderArchiveBox(room) {
@@ -1148,11 +1385,11 @@ function renderArchiveBox(room) {
     btn.textContent = "💾 บันทึกทัวร์นาเมนต์ (ให้ทุกคนดูได้)";
   }
 
-  // สร้างครั้งแรก: โฮสต์กดได้ | หลังบันทึกแล้ว: ต้องเป็นโฮสต์ที่เป็นแอดมินด้วยถึงจะอัปเดตทับได้
-  const canUseControls = saved ? (isHost && isAdmin) : isHost;
+  const pseudoArchive = { creatorEmail: room.creatorEmail, affiliation: room.affiliation };
+  const canUseControls = saved ? (isHost && canEditArchive(pseudoArchive)) : isHost;
   controlsEl.classList.toggle("hidden", !canUseControls);
-  if (saved && !isAdmin) {
-    statusEl.innerHTML += `<br><span class="small-text">การแก้ไขภายหลังทำได้เฉพาะแอดมิน</span>`;
+  if (saved && !canUseControls) {
+    statusEl.innerHTML += `<br><span class="small-text">การอัปเดตภายหลังทำได้เฉพาะผู้สร้างห้องนี้ / เจ้าของเว็บ</span>`;
   }
 }
 async function saveOrUpdateArchive() {
@@ -1172,7 +1409,6 @@ async function saveOrUpdateArchive() {
     let createdAt = room.archiveCreatedAt || Date.now();
     let creating = !isUpdate;
     if (isUpdate) {
-      // ถ้าอันเดิมโดนแอดมินลบไปแล้ว ให้ถือว่าบันทึกใหม่
       const existing = await get(ref(db, `archives/${archiveId}`));
       if (!existing.exists()) {
         creating = true;
@@ -1186,6 +1422,8 @@ async function saveOrUpdateArchive() {
     const snapshot = {
       name,
       roomId: currentRoomId,
+      creatorEmail: room.creatorEmail || null,
+      affiliation: room.affiliation || null,
       hostName: (room.players && room.players[room.hostId]?.name) || "-",
       playerCount: room.players ? Object.keys(room.players).length : 0,
       createdAt,
@@ -1219,7 +1457,7 @@ async function saveOrUpdateArchive() {
 
 document.getElementById("btn-save-archive").addEventListener("click", saveOrUpdateArchive);
 
-// ---------- หน้ารายการทัวร์นาเมนต์ (เข้าได้จากหน้าแรก ไม่ต้องมีรหัสห้อง) ----------
+// ---------- หน้ารายการทัวร์นาเมนต์ ----------
 let allArchivesCache = [];
 
 function hideAllTopScreens() {
@@ -1227,8 +1465,11 @@ function hideAllTopScreens() {
   screenLobby.classList.add("hidden");
   screenGame.classList.add("hidden");
   screenPostgame.classList.add("hidden");
+  screenTournament.classList.add("hidden");
   screenArchives.classList.add("hidden");
+  screenMyHistory.classList.add("hidden");
   screenArchiveDetail.classList.add("hidden");
+  screenSpectate.classList.add("hidden");
 }
 
 async function openArchivesList() {
@@ -1262,11 +1503,11 @@ function renderArchivesList(list) {
       <div class="archive-item" data-id="${escapeHtml(a.id)}">
         <div>
           <div class="a-name">🏆 ${escapeHtml(a.name || "ไม่มีชื่อ")}</div>
-          <div class="a-meta">ผู้เล่น ${a.playerCount || 0} คน • โฮสต์: ${escapeHtml(a.hostName || "-")} • อัปเดตล่าสุด ${date}</div>
+          <div class="a-meta">ผู้เล่น ${a.playerCount || 0} คน • โฮสต์: ${escapeHtml(a.hostName || "-")}${a.affiliation ? ` • สังกัด: ${escapeHtml(a.affiliation)}` : ""} • อัปเดตล่าสุด ${date}</div>
         </div>
         <div class="archive-item-actions">
           <span class="badge">ดูรายละเอียด ➜</span>
-          ${isAdmin ? `<button class="btn-del-mini" data-del="${escapeHtml(a.id)}" title="ลบทัวร์นาเมนต์">🗑️</button>` : ""}
+          ${canDeleteArchive(a) ? `<button class="btn-del-mini" data-del="${escapeHtml(a.id)}" title="ลบทัวร์นาเมนต์">🗑️</button>` : ""}
         </div>
       </div>`;
   }).join("");
@@ -1292,12 +1533,20 @@ document.getElementById("archives-search").addEventListener("input", (e) => {
 });
 
 document.getElementById("btn-open-archives").addEventListener("click", openArchivesList);
+document.getElementById("btn-open-my-history").addEventListener("click", async () => {
+  if(!currentUser?.uid) { homeError.textContent="กรุณาเข้าสู่ระบบเพื่อดูประวัติของคุณ"; return; }
+  hideAllTopScreens(); screenMyHistory.classList.remove("hidden");
+  const list=document.getElementById("my-history-list"); list.innerHTML="กำลังโหลด...";
+  const snap=await get(ref(db,`userHistory/${currentUser.uid}`)); const history=Object.values(snap.val()||{}).sort((a,b)=>(b.finishedAt||0)-(a.finishedAt||0));
+  list.innerHTML=history.length?history.map(h=>`<div class="match-card"><b>${escapeHtml(h.organizer||"-")}</b><p class="small-text">${escapeHtml(h.format||"-")} • ${h.role==="organizer"?"ผู้จัด":"ผู้เล่น"} • ${formatTournamentDate(h.finishedAt)}</p></div>`).join(""):`<p class="archives-empty">ยังไม่มีประวัติการแข่งขัน</p>`;
+});
+document.getElementById("btn-history-back").addEventListener("click",()=>{hideAllTopScreens();screenHome.classList.remove("hidden");});
 document.getElementById("btn-archives-back").addEventListener("click", () => {
   hideAllTopScreens();
   screenHome.classList.remove("hidden");
 });
 
-// ---------- หน้ารายละเอียดทัวร์นาเมนต์ (read-only) ----------
+// ---------- หน้ารายละเอียดทัวร์นาเมนต์ ----------
 let currentArchiveWeekView = 1;
 
 async function openArchiveDetail(archiveId) {
@@ -1326,16 +1575,18 @@ async function openArchiveDetail(archiveId) {
 
 function renderArchiveDetail(archive) {
   currentArchiveData = archive;
-  const editing = isAdmin && archiveEditMode;
+  const canEdit = canEditArchive(archive);
+  const canDelete = canDeleteArchive(archive);
+  const editing = canEdit && archiveEditMode;
 
   document.getElementById("archive-detail-title").textContent = `🏆 ${archive.name || "ไม่มีชื่อ"}`;
   const date = archive.updatedAt ? new Date(archive.updatedAt).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" }) : "-";
   document.getElementById("archive-detail-meta").textContent =
-    `ห้อง: ${archive.roomId || "-"} • โฮสต์: ${archive.hostName || "-"} • ผู้เล่น ${archive.playerCount || 0} คน • อัปเดตล่าสุด ${date}`;
+    `ห้อง: ${archive.roomId || "-"} • โฮสต์: ${archive.hostName || "-"}${archive.affiliation ? ` • สังกัด: ${archive.affiliation}` : ""} • ผู้เล่น ${archive.playerCount || 0} คน • อัปเดตล่าสุด ${date}`;
 
-  // แถบเครื่องมือแอดมิน
-  document.getElementById("archive-admin-bar").classList.toggle("hidden", !isAdmin);
+  document.getElementById("archive-admin-bar").classList.toggle("hidden", !canEdit);
   document.getElementById("btn-archive-edit").textContent = editing ? "✅ เสร็จสิ้นการแก้ไข" : "✏️ โหมดแก้ไข";
+  document.getElementById("btn-archive-delete").classList.toggle("hidden", !canDelete);
   const renameBox = document.getElementById("archive-rename-box");
   renameBox.classList.toggle("hidden", !editing);
   const renameInput = document.getElementById("archive-rename-input");
@@ -1424,7 +1675,7 @@ function renderArchiveLeague(archive) {
 
   const week = weeks.find(w => w.weekNumber === currentArchiveWeekView) || weeks[0];
   const weekIdx = weeks.indexOf(week);
-  const editing = isAdmin && archiveEditMode;
+  const editing = canEditArchive(archive) && archiveEditMode;
   const matchesDiv = document.getElementById("adet-week-matches");
   matchesDiv.innerHTML = week.matches.map((m, matchIdx) => {
     if (m.isBye) {
@@ -1495,28 +1746,35 @@ document.getElementById("btn-archive-detail-back").addEventListener("click", () 
 });
 
 // =====================================================================
-// ระบบแอดมิน: เข้าสู่ระบบด้วย Google + แก้ไข/ลบทัวร์นาเมนต์ย้อนหลัง
+// ระบบสิทธิ์: เข้าสู่ระบบด้วย Google + แก้ไข/ลบทัวร์นาเมนต์ย้อนหลัง
 // หมายเหตุ: การอนุญาตจริงถูกบังคับที่ Firebase Realtime Database Rules
-// (ฝั่งหน้าเว็บแค่ซ่อน/โชว์ปุ่ม) ดูตัวอย่าง rules ในคำอธิบาย
+// (ฝั่งหน้าเว็บแค่ซ่อน/โชว์ปุ่ม)
 // =====================================================================
 const emailKey = (email) => String(email || "").trim().toLowerCase().replace(/\./g, ",");
 
 onAuthStateChanged(auth, async (user) => {
   currentUser = user;
-  isAdmin = false;
   isOwner = false;
+  isCreator = false;
+  isModerator = false;
+  myAffiliation = null;
+  myRoleData = null;
   if (user && user.email) {
     try {
       const snap = await get(ref(db, `admins/${emailKey(user.email)}`));
-      const role = snap.exists() ? snap.val() : null;
-      isAdmin = !!role;
+      myRoleData = snap.exists() ? snap.val() : null;
+      const role = myRoleData?.role;
       isOwner = role === "owner";
+      isCreator = role === "creator" || isOwner;
+      isModerator = role === "moderator";
+      myAffiliation = myRoleData?.affiliation || null;
     } catch (e) {
-      console.error("check admin error:", e);
+      console.error("check role error:", e);
     }
   }
-  if (!isAdmin) archiveEditMode = false;
+  if (!isOwner) archiveEditMode = false;
   updateAuthUI();
+  updateCreateRoomGate();
 });
 
 function updateAuthUI() {
@@ -1525,11 +1783,13 @@ function updateAuthUI() {
   loginBtn.classList.toggle("hidden", !!currentUser);
   info.classList.toggle("hidden", !currentUser);
   if (currentUser) {
-    const role = isOwner ? " (เจ้าของ)" : (isAdmin ? " (แอดมิน)" : " (ไม่มีสิทธิ์แก้ไข)");
-    document.getElementById("auth-email").textContent = (currentUser.email || "") + role;
+    let roleLabel = " (ไม่มีสิทธิ์พิเศษ)";
+    if (isOwner) roleLabel = " (เจ้าของเว็บ)";
+    else if (isCreator) roleLabel = " (ผู้สร้างห้อง)";
+    else if (isModerator) roleLabel = ` (ผู้ดูแลสังกัด: ${myAffiliation || "-"})`;
+    document.getElementById("auth-email").textContent = (currentUser.email || "") + roleLabel;
   }
 
-  // รีเฟรชหน้าที่เปิดอยู่ให้ตรงกับสิทธิ์ล่าสุด
   if (!screenArchives.classList.contains("hidden")) {
     document.getElementById("archives-search").dispatchEvent(new Event("input"));
   }
@@ -1537,6 +1797,7 @@ function updateAuthUI() {
     renderArchiveDetail(currentArchiveData);
   }
   document.getElementById("admin-panel").classList.toggle("hidden", !isOwner);
+  document.getElementById("admin-spectate-box")?.classList.toggle("hidden", !isOwner);
   if (isOwner) loadAdminList();
   if (latestRoom && latestRoom.status === "finished") renderArchiveBox(latestRoom);
 }
@@ -1558,7 +1819,8 @@ document.getElementById("btn-logout").addEventListener("click", () => signOut(au
 
 // --- ลบ / แก้ไขทัวร์นาเมนต์
 async function deleteArchive(id, name) {
-  if (!isAdmin || !id) return;
+  const item = allArchivesCache.find(x => x.id === id) || currentArchiveData;
+  if (!canDeleteArchive(item) || !id) return;
   if (!confirm(`ลบทัวร์นาเมนต์ "${name}" ถาวร?\nกู้คืนไม่ได้นะ`)) return;
   try {
     await set(ref(db, `archives/${id}`), null);
@@ -1572,7 +1834,7 @@ async function deleteArchive(id, name) {
 }
 
 async function applyArchiveEdit(patch) {
-  if (!isAdmin || !currentArchiveId) return;
+  if (!canEditArchive(currentArchiveData) || !currentArchiveId) return;
   try {
     await update(ref(db, `archives/${currentArchiveId}`), { ...patch, updatedAt: Date.now() });
     archivesDirty = true;
@@ -1606,7 +1868,7 @@ async function archiveAddPokemon(pid, listIdx, btn) {
 }
 
 document.getElementById("btn-archive-edit").addEventListener("click", () => {
-  if (!isAdmin || !currentArchiveData) return;
+  if (!canEditArchive(currentArchiveData) || !currentArchiveData) return;
   archiveEditMode = !archiveEditMode;
   renderArchiveDetail(currentArchiveData);
 });
@@ -1619,19 +1881,24 @@ document.getElementById("btn-archive-rename").addEventListener("click", () => {
   applyArchiveEdit({ name });
 });
 
-// --- เจ้าของจัดการรายชื่อผู้มีสิทธิ์
+// --- เจ้าของเว็บจัดการรายชื่อผู้มีสิทธิ์ (ผู้สร้างห้อง / ผู้ดูแลสังกัด)
 async function loadAdminList() {
   const listEl = document.getElementById("admin-list");
   try {
     const snap = await get(ref(db, "admins"));
     const val = snap.exists() ? snap.val() : {};
-    listEl.innerHTML = Object.entries(val).map(([key, role]) => `
-      <li>
-        <span>${escapeHtml(key.replace(/,/g, "."))}</span>
+    listEl.innerHTML = Object.entries(val).map(([key, data]) => {
+      const email = key.replace(/,/g, ".");
+      const role = (typeof data === "object" ? data?.role : data) || "owner";
+      const aff = typeof data === "object" ? data?.affiliation : null;
+      const roleLabel = role === "owner" ? "OWNER" : role === "creator" ? "ผู้สร้างห้อง" : "ผู้ดูแลสังกัด";
+      return `<li>
+        <span>${escapeHtml(email)}${aff ? ` <span class="badge aff-badge">${escapeHtml(aff)}</span>` : ""}</span>
         ${role === "owner"
           ? '<span class="badge">OWNER</span>'
-          : `<button class="btn-leave-small" data-remove-admin="${escapeHtml(key)}">ลบสิทธิ์</button>`}
-      </li>`).join("") || '<li>ยังไม่มีรายชื่อ</li>';
+          : `<span class="badge role-badge">${roleLabel}</span> <button class="btn-leave-small" data-remove-admin="${escapeHtml(key)}">ลบสิทธิ์</button>`}
+      </li>`;
+    }).join("") || '<li>ยังไม่มีรายชื่อ</li>';
     listEl.querySelectorAll("[data-remove-admin]").forEach(btn => {
       btn.addEventListener("click", async () => {
         if (!confirm("ยกเลิกสิทธิ์ของคนนี้?")) return;
@@ -1651,15 +1918,77 @@ async function loadAdminList() {
 
 document.getElementById("btn-add-admin").addEventListener("click", async () => {
   if (!isOwner) return;
-  const input = document.getElementById("admin-email-input");
-  const email = input.value.trim().toLowerCase();
+  const emailInput = document.getElementById("admin-email-input");
+  const roleSelect = document.getElementById("admin-role-select");
+  const affInput = document.getElementById("admin-affiliation-input");
+
+  const email = emailInput.value.trim().toLowerCase();
+  const role = roleSelect.value;
+  const affiliation = affInput.value.trim();
+
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert("อีเมลไม่ถูกต้อง"); return; }
+  if (!affiliation) { alert("กรุณาระบุชื่อสังกัด"); return; }
+
   try {
-    await set(ref(db, `admins/${emailKey(email)}`), true);
-    input.value = "";
+    await set(ref(db, `admins/${emailKey(email)}`), { role, affiliation });
+    emailInput.value = "";
+    affInput.value = "";
     loadAdminList();
   } catch (e) {
     console.error("add admin error:", e);
     alert("เพิ่มไม่สำเร็จ");
   }
+});
+
+// =====================================================================
+// โหมดตรวจสอบห้องแข่งขันสด (เฉพาะเจ้าของเว็บ) - ดู + แชทได้ทุกห้อง
+// =====================================================================
+document.getElementById("btn-spectate-room")?.addEventListener("click", () => {
+  if (!isOwner) return;
+  const code = document.getElementById("spectate-room-code").value.trim().toUpperCase();
+  if (code) openSpectate(code);
+});
+
+function openSpectate(roomId) {
+  hideAllTopScreens();
+  screenSpectate.classList.remove("hidden");
+  document.getElementById("spectate-room-code-title").textContent = roomId;
+  spectateRoomId = roomId;
+
+  onValue(ref(db, "rooms/" + roomId), (snap) => {
+    const strip = document.getElementById("spectate-players-strip");
+    if (!snap.exists()) { strip.innerHTML = '<p class="archives-empty">ไม่พบห้องนี้ (อาจปิดไปแล้ว)</p>'; return; }
+    const room = snap.val();
+    strip.innerHTML = Object.values(room.players || {}).map(p => `
+      <div class="player-chip"><div>${escapeHtml(p.name)}${p.isHost ? ' 👑' : ''}</div>
+      <div class="p-money">💰${(p.money||0).toLocaleString()} | 🎒${(p.team||[]).length}</div></div>`).join("");
+  });
+
+  onValue(ref(db, `rooms/${roomId}/adminChat`), snap => renderChatMessages(document.getElementById("spectate-chat-messages"), snap.val()));
+  onValue(ref(db, `rooms/${roomId}/adminCalls`), snap => {
+    const calls=Object.values(snap.val()||{}).filter(c=>c.status!=="closed").sort((a,b)=>b.time-a.time);
+    document.getElementById("spectate-admin-calls").innerHTML=calls.length?`<b>🆘 คำขอเรียกแอดมิน</b>${calls.map(c=>`<div>${escapeHtml(c.name)} — ${formatTournamentDate(c.time)}</div>`).join("")}`:"<span class=\"small-text\">ไม่มีคำขอเรียกแอดมิน</span>";
+  });
+}
+
+document.getElementById("btn-spectate-chat-send")?.addEventListener("click", () => {
+  const input = document.getElementById("spectate-chat-input");
+  const text = input.value.trim();
+  if (!text || !spectateRoomId || !isOwner) return;
+  push(ref(db, `rooms/${spectateRoomId}/adminChat`), {
+    name: "🛡️ เจ้าของเว็บ",
+    text,
+    time: Date.now(),
+    isOwnerMsg: true
+  });
+  input.value = "";
+});
+document.getElementById("spectate-chat-input")?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") document.getElementById("btn-spectate-chat-send").click();
+});
+
+document.getElementById("btn-spectate-back")?.addEventListener("click", () => {
+  spectateRoomId = null;
+  hideAllTopScreens();
+  screenArchives.classList.remove("hidden");
 });

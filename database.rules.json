@@ -1,20 +1,27 @@
 {
   "rules": {
     "rooms": {
-      ".read": true,
-      ".write": true
+      "$roomId": {
+        ".read": "auth != null",
+        ".write": "auth != null && (auth.uid === data.child('creatorUid').val() || auth.uid === newData.child('creatorUid').val() || data.child('memberUids').child(auth.uid).val() === true || newData.child('memberUids').child(auth.uid).val() === true || root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() === 'owner' || (root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() === 'moderator' && data.child('affiliation').val() === root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('affiliation').val()))"
+      }
     },
     "archives": {
       ".read": true,
       "$archiveId": {
-        ".write": "(!data.exists() && newData.exists()) || (auth != null && auth.token.email_verified === true && root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).exists())"
+        ".write": "(!data.exists() && newData.exists() && auth != null && auth.token.email_verified === true && (root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() === 'owner' || root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() === 'creator')) || (data.exists() && auth != null && auth.token.email_verified === true && (root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() === 'owner' || (root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() === 'creator' && data.child('creatorEmail').val() === auth.token.email) || (root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() === 'moderator' && data.child('affiliation').val() != null && data.child('affiliation').val() === root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('affiliation').val())))"
       }
     },
     "admins": {
-      ".read": "auth != null && root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).val() === 'owner'",
+      ".read": true,
       "$emailKey": {
-        ".read": "auth != null && $emailKey === auth.token.email.toLowerCase().replace('.', ',')",
-        ".write": "auth != null && auth.token.email_verified === true && root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).val() === 'owner'"
+        ".write": "auth != null && auth.token.email_verified === true && root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() === 'owner'"
+      }
+    },
+    "userHistory": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
       }
     }
   }

@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pokémon Auction Draft</title>
+<title>VGC Lab</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="container">
-  <h1>⚡ Pokémon Auction Draft</h1>
+  <h1>⚡ VGC Lab</h1>
 
   <!-- หน้าแรก: สร้างห้อง / เข้าห้อง -->
   <div id="screen-home" class="card">
@@ -17,22 +17,30 @@
       <button class="tab-btn" id="tab-join">เข้าห้อง</button>
     </div>
 
+    <p class="small-text hidden" id="create-gate-msg">🔒 ต้องเข้าสู่ระบบด้วยบัญชีที่ได้รับสิทธิ์ "ผู้สร้างห้อง" ก่อน (ติดต่อเจ้าของเว็บเพื่อขอสิทธิ์)</p>
+
     <div id="form-create">
       <input type="text" id="create-name" placeholder="ชื่อของคุณ" maxlength="20">
+      <input type="text" id="create-team" placeholder="ทีมของคุณ (ลิงก์/ข้อความ ไม่บังคับ)" maxlength="500">
+      <label class="field-label">โหมดห้อง</label>
+      <select id="create-room-mode"><option value="auction">แบบประมูล (Auction)</option><option value="normal">แบบปกติ (Normal)</option></select>
+      <label class="field-label">รูปแบบการแข่งขัน (สูงสุด 2 เฟส)</label>
+      <div class="format-row"><select id="create-phase-1"><option value="swiss">Swiss</option><option value="single">Single Elimination</option><option value="double">Double Elimination</option><option value="roundRobin">Round Robin</option></select><select id="create-phase-2"><option value="">ไม่มีเฟส 2</option><option value="swiss">Swiss</option><option value="single">Single Elimination</option><option value="double">Double Elimination</option><option value="roundRobin">Round Robin</option></select></div>
+      <div class="format-row"><select id="create-best-of"><option value="BO1">BO1</option><option value="BO3">BO3</option></select><select id="create-checkin"><option value="everyRound">เช็คอินทุกรอบ</option><option value="once">เช็คอินรอบเดียว</option><option value="perPhase">เช็คอิน 1 รอบต่อเฟส</option></select></div>
+      <select id="create-swiss-rounds"><option value="3">Swiss 3 รอบ</option><option value="4">Swiss 4 รอบ</option><option value="5">Swiss 5 รอบ</option><option value="6">Swiss 6 รอบ</option><option value="7">Swiss 7 รอบ</option></select>
+      <select id="create-top-cut"><option value="0">ไม่กำหนด Top cut</option><option value="2">คัด Top 2 เข้าเฟสถัดไป</option><option value="4">คัด Top 4 เข้าเฟสถัดไป</option><option value="8">คัด Top 8 เข้าเฟสถัดไป</option><option value="16">คัด Top 16 เข้าเฟสถัดไป</option><option value="32">คัด Top 32 เข้าเฟสถัดไป</option></select>
       <select id="create-max-players">
         <option value="2">2 คน</option>
-        <option value="3">3 คน</option>
         <option value="4" selected>4 คน</option>
-        <option value="5">5 คน</option>
-        <option value="6">6 คน</option>
-        <option value="7">7 คน</option>
         <option value="8">8 คน</option>
+        <option value="16">16 คน</option><option value="32">32 คน</option><option value="64">64 คน</option><option value="128">128 คน</option>
       </select>
       <button class="primary" id="btn-create">สร้างห้อง</button>
     </div>
 
     <div id="form-join" class="hidden">
       <input type="text" id="join-name" placeholder="ชื่อของคุณ" maxlength="20">
+      <input type="text" id="join-team" placeholder="ทีมของคุณ (ลิงก์/ข้อความ ไม่บังคับ)" maxlength="500">
       <input type="text" id="join-code" placeholder="รหัสห้อง (6 หลัก)" maxlength="6" style="text-transform:uppercase">
       <button class="primary" id="btn-join">เข้าห้อง</button>
     </div>
@@ -40,15 +48,32 @@
     <div id="home-error" class="error"></div>
 
     <button class="primary" id="btn-open-archives" style="background:#4dd0e1;">📚 ดูทัวร์นาเมนต์ย้อนหลัง</button>
+    <button class="primary" id="btn-open-my-history" style="background:#7e57c2;">🕘 ประวัติของฉัน</button>
 
-    <!-- เข้าสู่ระบบแอดมิน (ไว้แก้ไข/ลบทัวร์นาเมนต์ย้อนหลัง) -->
+    <!-- เข้าสู่ระบบแอดมิน/ผู้สร้างห้อง/ผู้ดูแลสังกัด -->
     <div class="auth-bar">
-      <button class="auth-link" id="btn-login">🔐 เข้าสู่ระบบแอดมิน</button>
+      <button class="auth-link" id="btn-login">🔐 เข้าสู่ระบบ</button>
       <div id="auth-info" class="hidden">
         <span id="auth-email"></span>
         <button class="auth-link" id="btn-logout">ออกจากระบบ</button>
       </div>
     </div>
+  </div>
+
+  <div id="screen-my-history" class="card hidden"><div class="game-header"><h2 style="margin:0;">🕘 ประวัติการแข่งขันของฉัน</h2><button class="btn-leave-small" id="btn-history-back">⬅ กลับ</button></div><div id="my-history-list"></div></div>
+
+  <!-- ศูนย์ควบคุมการแข่งขัน: ใช้ได้ทั้งห้องปกติและหลังประมูล -->
+  <div id="screen-tournament" class="card hidden">
+    <div class="game-header"><h2 style="margin:0;">🏆 VGC Lab Tournament</h2><span class="small-text">ห้อง <b id="tournament-room-code"></b></span></div>
+    <div id="tournament-meta" class="tournament-meta"></div>
+    <p class="small-text" id="tournament-date"></p>
+    <div id="tournament-checkin" class="checkin-box"></div>
+    <details class="team-editor"><summary>📝 บันทึกข้อมูลทีมของฉัน (สำหรับ Meta)</summary><p class="small-text">1 ตัวต่อ 1 บรรทัด: Pokémon | Move 1, Move 2 | Item | Nature</p><textarea id="team-profile-input" rows="7" placeholder="Incineroar | Fake Out, Parting Shot | Sitrus Berry | Careful"></textarea><button class="primary" id="btn-save-team-profile">บันทึกทีม</button></details>
+    <div id="tournament-pairings"></div>
+    <div class="admin-help"><button class="primary" id="btn-call-admin">🆘 เรียกแอดมิน</button><span id="admin-call-status" class="small-text"></span><details><summary>💬 แชทกับแอดมิน</summary><div class="chat-messages" id="admin-chat-messages"></div><div class="chat-input-row"><input id="admin-chat-input" maxlength="300" placeholder="ส่งข้อความถึงผู้จัด/ทีมงาน"><button id="btn-admin-chat-send">ส่ง</button></div></details></div>
+    <div class="tournament-actions"><button class="primary hidden" id="btn-next-round">เริ่มรอบต่อไป</button><button class="primary hidden" id="btn-advance-phase">ปิดเฟสและคัด Top</button><button class="primary btn-danger" id="btn-withdraw">ถอนตัว</button><button class="primary hidden" id="btn-cancel-withdraw">ยกเลิกการถอนตัว</button><button class="primary btn-danger hidden" id="btn-finish-tournament">จบทัวร์นาเมนต์และล้างแชท</button></div>
+    <h3>📊 อันดับปัจจุบัน</h3><table class="standings-table" id="tournament-standings"></table>
+    <section id="meta-analytics" class="meta-analytics hidden"><h3>📈 Meta Analytics</h3><p class="small-text">แสดงเฉพาะห้องแบบปกติ และรายละเอียดทีมจะไม่ถูกเปิดอัตโนมัติ</p><div id="meta-content"></div></section>
   </div>
 
   <!-- ห้องรอ (Lobby) -->
@@ -61,6 +86,7 @@
     <p class="small-text" id="lobby-wait-msg">รอโฮสต์เริ่มเกม...</p>
     <button class="primary btn-danger" id="btn-leave-lobby">🚪 ออกจากห้อง</button>
   </div>
+
   <!-- ห้องเกม (ระหว่างประมูล) -->
   <div id="screen-game" class="card hidden">
 
@@ -124,6 +150,16 @@
       <h3 style="margin-bottom:14px;">👥 ทีมของผู้เล่นคนอื่น</h3>
       <div class="teams-summary-grid" id="others-team-grid"></div>
     </div>
+
+    <!-- แชทในห้อง -->
+    <div class="chat-box">
+      <h3 style="margin-bottom:10px;">💬 แชทในห้อง</h3>
+      <div class="chat-messages" id="game-chat-messages"></div>
+      <div class="chat-input-row">
+        <input type="text" id="game-chat-input" placeholder="พิมพ์แชทถึงผู้เล่นในห้อง..." maxlength="200">
+        <button id="btn-game-chat-send">ส่ง</button>
+      </div>
+    </div>
   </div>
 
   <!-- หน้าหลังจบการประมูล: สรุปทีม + ระบบแข่งขัน -->
@@ -168,20 +204,35 @@
     </div>
     <input type="text" id="archives-search" placeholder="🔍 ค้นหาชื่อทัวร์นาเมนต์...">
 
-    <!-- จัดการผู้มีสิทธิ์ (เห็นเฉพาะเจ้าของ) -->
+    <!-- จัดการผู้มีสิทธิ์ (เห็นเฉพาะเจ้าของเว็บ) -->
     <div id="admin-panel" class="admin-panel hidden">
-      <h3>🔑 ผู้ที่มีสิทธิ์แก้ไข/ลบทัวร์นาเมนต์</h3>
-      <p class="small-text">เพิ่มอีเมล Google ของคนที่ไว้ใจ เขาต้องกด "เข้าสู่ระบบแอดมิน" ด้วยอีเมลนั้น</p>
+      <h3>🔑 ผู้ที่มีสิทธิ์สร้างห้อง / ดูแลสังกัด</h3>
+      <p class="small-text">เพิ่มอีเมล Google ของคนที่ไว้ใจ เขาต้องกด "เข้าสู่ระบบ" ด้วยอีเมลนั้น</p>
       <div class="admin-add-row">
-        <input type="email" id="admin-email-input" placeholder="อีเมล Google ของคนที่จะให้สิทธิ์">
+        <input type="email" id="admin-email-input" placeholder="อีเมล Google">
+        <select id="admin-role-select">
+          <option value="creator">ผู้สร้างห้อง</option>
+          <option value="moderator">ผู้ดูแลสังกัด</option>
+        </select>
+        <input type="text" id="admin-affiliation-input" placeholder="ชื่อสังกัด">
         <button class="primary" id="btn-add-admin">➕ เพิ่ม</button>
       </div>
       <ul class="player-list" id="admin-list"></ul>
+
+      <!-- กล่องสำหรับเจ้าของเว็บตรวจสอบห้องแข่งขันสด -->
+      <div class="admin-spectate-box" id="admin-spectate-box">
+        <h3>👁️ ตรวจสอบห้องแข่งขัน</h3>
+        <div class="admin-add-row">
+          <input type="text" id="spectate-room-code" placeholder="รหัสห้อง 6 หลัก" maxlength="6" style="text-transform:uppercase">
+          <button class="primary" id="btn-spectate-room">🔎 เปิดดู</button>
+        </div>
+      </div>
     </div>
+
     <div id="archives-list"></div>
   </div>
 
-  <!-- ดูรายละเอียดทัวร์นาเมนต์ที่บันทึกไว้ (read-only) -->
+  <!-- ดูรายละเอียดทัวร์นาเมนต์ที่บันทึกไว้ (read-only / edit ตามสิทธิ์) -->
   <div id="screen-archive-detail" class="card hidden">
     <div class="game-header">
       <h2 id="archive-detail-title" style="margin:0;">-</h2>
@@ -189,10 +240,10 @@
     </div>
     <p class="small-text" id="archive-detail-meta"></p>
 
-    <!-- เครื่องมือแอดมิน (เห็นเฉพาะคนที่มีสิทธิ์) -->
+    <!-- เครื่องมือแก้ไข (เห็นเฉพาะคนที่มีสิทธิ์กับทัวร์นี้) -->
     <div id="archive-admin-bar" class="archive-admin-bar hidden">
       <button class="btn-edit" id="btn-archive-edit">✏️ โหมดแก้ไข</button>
-      <button class="btn-leave-small" id="btn-archive-delete">🗑️ ลบทัวร์นาเมนต์</button>
+      <button class="btn-leave-small hidden" id="btn-archive-delete">🗑️ ลบทัวร์นาเมนต์</button>
     </div>
     <div id="archive-rename-box" class="archive-rename-box hidden">
       <input type="text" id="archive-rename-input" maxlength="40" placeholder="ชื่อทัวร์นาเมนต์">
@@ -213,6 +264,24 @@
       <div id="adet-week-matches"></div>
       <h3 style="margin:20px 0 10px;">📊 ตารางคะแนน</h3>
       <table class="standings-table" id="adet-standings-table"></table>
+    </div>
+  </div>
+
+  <!-- โหมดตรวจสอบห้องแข่งขันสด (เฉพาะเจ้าของเว็บ) -->
+  <div id="screen-spectate" class="card hidden">
+    <div class="game-header">
+      <h2 style="margin:0;">👁️ โหมดตรวจสอบ: <span id="spectate-room-code-title">-</span></h2>
+      <button class="btn-leave-small" id="btn-spectate-back">⬅ ปิด</button>
+    </div>
+    <div class="players-strip" id="spectate-players-strip"></div>
+    <div id="spectate-admin-calls" class="admin-help"></div>
+    <div class="chat-box">
+      <h3 style="margin-bottom:10px;">💬 แชททีมงาน (เจ้าของเว็บตอบได้ทุกห้อง)</h3>
+      <div class="chat-messages" id="spectate-chat-messages"></div>
+      <div class="chat-input-row">
+        <input type="text" id="spectate-chat-input" placeholder="พิมพ์ข้อความในฐานะแอดมิน..." maxlength="200">
+        <button id="btn-spectate-chat-send">ส่ง</button>
+      </div>
     </div>
   </div>
 </div>
