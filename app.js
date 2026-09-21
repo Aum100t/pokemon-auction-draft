@@ -362,7 +362,9 @@ function makePairs(ids, standings = []) {
 }
 function initialTournament(room) {
   const ids = activePlayerIds(room);
-  return { phaseIndex:0, round:0, started:false, checkins:{}, pendingWithdrawals:{}, history:[], phaseParticipants:ids, championId:null };
+  const firstPhase = room.settings?.phases?.[0] || "swiss";
+  const weeklySchedule = firstPhase === "roundRobin" ? generateRoundRobinSchedule(ids) : [];
+  return { phaseIndex:0, round:0, started:false, checkins:{}, pendingWithdrawals:{}, history:[], phaseParticipants:ids, weeklySchedule, championId:null };
 }
 function tournamentStats(room) {
   const stats = Object.fromEntries(competitivePlayerIds(room).map(pid => [pid,{pid,name:room.players[pid].name,wins:0,losses:0,points:0,played:0}]));
@@ -566,12 +568,34 @@ function renderTournament(room) {
   pairs.querySelectorAll("button[data-result]").forEach(b=>b.addEventListener("click",()=>{const match=current.matches[+b.dataset.match],isP1=b.dataset.result===match.player1Id,defaultScore=room.settings.bestOf==="BO3"?(isP1?"2-0":"0-2"):(isP1?"1-0":"0-1");const score=room.settings.bestOf==="BO3"?prompt("กรอกสกอร์ (ผู้เล่นซ้าย-ขวา): 2-0, 2-1, 1-2 หรือ 0-2",defaultScore):defaultScore;if(score!==null)tournamentAction("result",{round:t.history.length-1,match:+b.dataset.match,winner:b.dataset.result,score});}));
   bindTeamToggles(pairs);
   current?.matches.forEach((m,i)=>mountMatchChat(room,t.history.length-1,i,isHost||currentPlayerId===m.player1Id||currentPlayerId===m.player2Id));
+  renderTournamentWeeklySchedule(room, t, phase);
   const activeTournament=room.status==="tournament";
   document.getElementById("btn-next-round").classList.toggle("hidden",!isHost||!activeTournament||t.phaseComplete); document.getElementById("btn-next-round").onclick=beginNextRound;
   document.getElementById("btn-advance-phase").classList.toggle("hidden",!isHost || !activeTournament || !t.phaseComplete || t.phaseIndex+1>=room.settings.phases.length); document.getElementById("btn-advance-phase").onclick=advanceTournamentPhase;
   document.getElementById("btn-finish-tournament").classList.toggle("hidden",!isHost||!activeTournament); document.getElementById("btn-finish-tournament").onclick=()=>finishTournament(room);
   const withdrawn=!!room.players[currentPlayerId]?.withdrawn; const withdrawButton=document.getElementById("btn-withdraw"); withdrawButton.classList.toggle("hidden",withdrawn||amSpectator||!activeTournament); document.getElementById("btn-cancel-withdraw").classList.add("hidden"); withdrawButton.onclick=async()=>{if(!confirm("ยืนยันถอนตัว? คุณจะกลับเข้ารายการนี้ไม่ได้")) return; withdrawButton.disabled=true; const saved=await tournamentAction("withdraw"); if(saved) document.getElementById("admin-call-status").textContent="ถอนตัวสำเร็จแล้ว"; withdrawButton.disabled=false;};
   const table=document.getElementById("tournament-standings"); table.innerHTML=`<tr><th>#</th><th>ผู้เล่น</th><th>ชนะ</th><th>แพ้</th><th>แต้ม</th><th>ทีม</th></tr>`+stats.map((s,i)=>`<tr><td>${i+1}</td><td>${escapeHtml(s.name)}${room.players[s.pid].withdrawn?" (ถอนตัว)":""}</td><td>${s.wins}</td><td>${s.losses}</td><td>${s.points}</td><td>${teamPreviewHtml(room.players[s.pid],`standing-${s.pid}`)}</td></tr>`).join(""); bindTeamToggles(table); renderMetaAnalytics(room);
+}
+
+function renderTournamentWeeklySchedule(room, tournament, phase) {
+  const section = document.getElementById("tournament-weekly-schedule");
+  if (!section) return;
+  if (phase !== "roundRobin") {
+    section.innerHTML = `<p class="small-text fixture-note">รูปแบบ ${tournamentLabel(phase)} จะจัดคู่ทีละรอบตามผลและการเช็กอิน หากต้องการเห็นคู่ครบทุกสัปดาห์ ให้เลือก Round Robin ตอนสร้างห้อง</p>`;
+    return;
+  }
+  const weeks = tournament.weeklySchedule?.length ? tournament.weeklySchedule : generateRoundRobinSchedule(tournament.phaseParticipants || activePlayerIds(room));
+  if (!weeks.length) { section.innerHTML = '<p class="small-text fixture-note">ต้องมีผู้เล่นอย่างน้อย 2 คนเพื่อสร้างตารางแข่งขัน</p>'; return; }
+  const selected = weeks.find(week => week.weekNumber === currentWeekView) || weeks[0];
+  section.innerHTML = `<div class="fixture-header"><h3>🗓️ ตารางจับคู่รายสัปดาห์</h3><p class="small-text">ล็อกคู่ล่วงหน้าแล้ว ${weeks.length} สัปดาห์ — ผลการแข่งขันจะบันทึกในรอบที่ผู้จัดเปิด</p></div><div class="week-tabs">${weeks.map(week => `<button class="week-tab-btn ${week.weekNumber === selected.weekNumber ? "active" : ""}" data-tournament-week="${week.weekNumber}">สัปดาห์ ${week.weekNumber}</button>`).join("")}</div><div class="fixture-grid">${selected.matches.map(match => {
+    const first = room.players?.[match.player1Id]?.name || "-";
+    const second = match.isBye ? "BYE" : room.players?.[match.player2Id]?.name || "-";
+    return `<article class="fixture-card ${match.isBye ? "fixture-bye" : ""}"><span class="fixture-label">${match.isBye ? "พักรอบนี้" : "MATCH"}</span><strong>${escapeHtml(first)}</strong><span class="vs">${match.isBye ? "—" : "VS"}</span><strong>${escapeHtml(second)}</strong></article>`;
+  }).join("")}</div>`;
+  section.querySelectorAll("[data-tournament-week]").forEach(button => button.addEventListener("click", () => {
+    currentWeekView = Number(button.dataset.tournamentWeek);
+    renderTournamentWeeklySchedule(room, tournament, phase);
+  }));
 }
 
 // ---------- Start Game ----------
@@ -1277,18 +1301,18 @@ function renderPostgame(room) {
 function renderTeamsSummary(room) {
   const grid = document.getElementById("teams-summary-grid");
   grid.innerHTML = competitivePlayerIds(room).map(pid => [pid, room.players[pid]]).map(([pid, p]) => `
-    <div class="team-summary-card">
-      <h4>${p.name}${pid === room.hostId ? ' <span class="badge">HOST</span>' : ''}</h4>
-      <p class="small-text">เงินคงเหลือ: ${p.money.toLocaleString()}</p>
-      <div class="my-team">
+    <article class="team-summary-card draft-team-card">
+      <div class="draft-team-heading"><div><h4>${escapeHtml(p.name)}${pid === room.hostId ? ' <span class="badge">HOST</span>' : ''}</h4><p class="small-text">ทีมจากการประมูล</p></div><div class="team-count-badge">${(p.team || []).length}/${room.settings.teamSize}</div></div>
+      <div class="draft-team-meta"><span>💰 ${(p.money || 0).toLocaleString()}</span><span>🎒 ${(p.team || []).length} ตัว</span></div>
+      <div class="draft-team-roster">
         ${(p.team || []).map(t => `
-          <div class="team-slot">
+          <div class="team-slot draft-pokemon-card">
             <img src="${t.sprite}" alt="">
             <span>${t.displayName}${t.isMega ? ' 🌟' : ''}</span>
             ${t.price ? `<span class="price-tag">💰${t.price.toLocaleString()}</span>` : (t.viaTicket ? '<span class="price-tag">🎫 ตั๋ว</span>' : (t.viaRandom ? '<span class="price-tag">🎲 สุ่มให้</span>' : ''))}
           </div>`).join("")}
       </div>
-    </div>
+    </article>
   `).join("");
 
   const bannedBox = document.getElementById("banned-summary");
@@ -2205,9 +2229,9 @@ function renderSpectateStandings(room) {
 function renderSpectateDraftTeams(room) {
   const grid = document.getElementById("spectate-draft-teams");
   if (!grid) return;
-  grid.innerHTML = Object.entries(room.players || {}).map(([playerId, player]) => {
+  grid.innerHTML = Object.entries(room.players || {}).filter(([, player]) => !player.isSpectator).map(([playerId, player]) => {
     const team = player.team || [];
-    return `<article class="team-summary-card"><h4>${escapeHtml(player.name)}${playerId === room.hostId ? ' <span class="badge">HOST</span>' : ''}</h4><p class="small-text">ได้แล้ว ${team.length}/${room.settings?.teamSize || 10} ตัว</p><div class="my-team">${team.map(member => teamSlotHtml(member)).join("") || '<span class="small-text">ยังไม่มีโปเกม่อนจากการประมูล</span>'}</div></article>`;
+    return `<article class="team-summary-card draft-team-card"><div class="draft-team-heading"><div><h4>${escapeHtml(player.name)}${playerId === room.hostId ? ' <span class="badge">HOST</span>' : ''}</h4><p class="small-text">ทีมจากการประมูล</p></div><div class="team-count-badge">${team.length}/${room.settings?.teamSize || 10}</div></div><div class="draft-team-meta"><span>💰 ${(player.money || 0).toLocaleString()}</span><span>🎒 ${team.length} ตัว</span></div><div class="draft-team-roster">${team.map(member => `<div class="team-slot draft-pokemon-card"><img src="${member.sprite}" alt=""><span>${escapeHtml(member.displayName)}${member.isMega ? ' 🌟' : ''}</span>${member.price ? `<span class="price-tag">💰${member.price.toLocaleString()}</span>` : (member.viaTicket ? '<span class="price-tag">🎫 ตั๋ว</span>' : (member.viaRandom ? '<span class="price-tag">🎲 สุ่มให้</span>' : ''))}</div>`).join("") || '<span class="small-text">ยังไม่มีโปเกม่อนจากการประมูล</span>'}</div></article>`;
   }).join("") || '<p class="small-text">ยังไม่มีผู้เล่นในห้อง</p>';
 }
 
