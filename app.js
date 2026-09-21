@@ -26,6 +26,7 @@ let currentFilter = "all";
 let currentSearch = "";
 let currentSection = "pool";
 let currentWeekView = 1;
+let currentTournamentView = "matches";
 let latestRoom = null;
 let disconnectCancelled = false;
 
@@ -627,12 +628,41 @@ function renderTournament(room) {
   bindTeamToggles(pairs);
   current?.matches.forEach((m,i)=>mountMatchChat(room,t.history.length-1,i,isHost||currentPlayerId===m.player1Id||currentPlayerId===m.player2Id));
   renderTournamentWeeklySchedule(room, t, phase);
+  renderTournamentAuctionTeams(room);
   const activeTournament=room.status==="tournament";
   document.getElementById("btn-next-round").classList.toggle("hidden",!isHost||!activeTournament||t.phaseComplete); document.getElementById("btn-next-round").onclick=beginNextRound;
   document.getElementById("btn-advance-phase").classList.toggle("hidden",!isHost || !activeTournament || !t.phaseComplete || t.phaseIndex+1>=room.settings.phases.length); document.getElementById("btn-advance-phase").onclick=advanceTournamentPhase;
   document.getElementById("btn-finish-tournament").classList.toggle("hidden",!isHost||!activeTournament); document.getElementById("btn-finish-tournament").onclick=()=>finishTournament(room);
   const withdrawn=!!room.players[currentPlayerId]?.withdrawn; const withdrawButton=document.getElementById("btn-withdraw"); withdrawButton.classList.toggle("hidden",withdrawn||amSpectator||!activeTournament); document.getElementById("btn-cancel-withdraw").classList.add("hidden"); withdrawButton.onclick=async()=>{if(!confirm("ยืนยันถอนตัว? คุณจะกลับเข้ารายการนี้ไม่ได้")) return; withdrawButton.disabled=true; const saved=await tournamentAction("withdraw"); if(saved) document.getElementById("admin-call-status").textContent="ถอนตัวสำเร็จแล้ว"; withdrawButton.disabled=false;};
   const table=document.getElementById("tournament-standings"); table.innerHTML=`<tr><th>#</th><th>ผู้เล่น</th><th>ชนะ</th><th>แพ้</th><th>แต้ม</th><th>ทีม</th></tr>`+stats.map((s,i)=>`<tr><td>${i+1}</td><td>${escapeHtml(s.name)}${room.players[s.pid].withdrawn?" (ถอนตัว)":""}</td><td>${s.wins}</td><td>${s.losses}</td><td>${s.points}</td><td>${teamPreviewHtml(room.players[s.pid],`standing-${s.pid}`)}</td></tr>`).join(""); bindTeamToggles(table);
+}
+
+function renderTournamentAuctionTeams(room) {
+  const tabs = document.getElementById("tournament-auction-tabs");
+  const matchesTab = document.getElementById("tournament-tab-matches");
+  const draftTab = document.getElementById("tournament-tab-draft");
+  const matches = document.getElementById("tournament-pairings");
+  const schedule = document.getElementById("tournament-weekly-schedule");
+  const summary = document.getElementById("tournament-draft-summary");
+  const isAuction = room.settings?.mode === "auction";
+  tabs?.classList.toggle("hidden", !isAuction);
+  if (!isAuction || !summary) return;
+  const players = competitivePlayerIds(room);
+  summary.innerHTML = `<div class="auction-summary-heading"><div><h3>🎒 ทีมจากการประมูล</h3><p class="small-text">โปเกม่อนที่ผู้เล่นแต่ละคนได้จากการประมูล — เรียง 5 ตัวต่อแถว</p></div></div><div class="auction-team-grid">${players.map(pid => {
+    const player = room.players[pid], team = player.team || [];
+    return `<article class="auction-team-card"><header><div><b>${escapeHtml(player.name)}</b>${pid === room.hostId ? ' <span class="badge">HOST</span>' : ''}</div><span>${team.length}/${room.settings.teamSize || 10} ตัว</span></header><div class="auction-team-roster">${team.map(member => `<div class="auction-team-mon"><img src="${member.sprite}" alt=""><b>${escapeHtml(member.displayName)}</b>${member.isMega ? '<small>🌟 MEGA</small>' : ''}${member.price ? `<small>💰 ${Number(member.price).toLocaleString()}</small>` : (member.viaTicket ? '<small>🎫 ตั๋ว</small>' : (member.viaRandom ? '<small>🎲 สุ่ม</small>' : ''))}</div>`).join("") || '<p class="small-text">ยังไม่มีโปเกม่อน</p>'}</div></article>`;
+  }).join("")}</div>`;
+  const showView = view => {
+    currentTournamentView = view;
+    matches?.classList.toggle("hidden", view !== "matches");
+    schedule?.classList.toggle("hidden", view !== "matches");
+    summary.classList.toggle("hidden", view !== "draft");
+    matchesTab?.classList.toggle("active", view === "matches");
+    draftTab?.classList.toggle("active", view === "draft");
+  };
+  showView(currentTournamentView);
+  matchesTab.onclick = () => showView("matches");
+  draftTab.onclick = () => showView("draft");
 }
 
 let lastPendingResultCommit = 0;
@@ -952,8 +982,11 @@ function checkGameEnd(room) {
     p => (p.team ? p.team.length : 0) < teamSize
   ).length;
   const onlyOneLeft = incompleteCount === 1;
+  // หากเหลือคนที่ยังมีเงินบิดได้เพียงคนเดียว จะไม่มีการแข่งขันราคาแล้ว
+  // จึงสุ่มตัวที่เหลือให้ทุกคนที่ทีมยังไม่เต็มทันที
+  const onlyOneCanBid = players.filter(p => canStillBid(p, room)).length === 1;
 
-  if (noOneCanBid || onlyOneLeft) fillTeamsRandomly(room);
+  if (noOneCanBid || onlyOneLeft || onlyOneCanBid) fillTeamsRandomly(room);
 
   const allFull = players.every(
     p => (p.team ? p.team.length : 0) >= teamSize
@@ -961,7 +994,7 @@ function checkGameEnd(room) {
   const poolExhausted = Object.values(room.pool).every(
     p => p.status !== "available" && p.status !== "auctioning"
   );
-  if (noOneCanBid || onlyOneLeft || allFull || poolExhausted) {
+  if (noOneCanBid || onlyOneLeft || onlyOneCanBid || allFull || poolExhausted) {
     room.status = "tournament";
     room.tournament = initialTournament(room);
   }
