@@ -2146,7 +2146,8 @@ async function openSpectate(roomId) {
     strip.innerHTML = Object.values(room.players || {}).map(p => `
       <div class="player-chip"><div>${escapeHtml(p.name)}${p.isHost ? ' 👑' : ''}</div>
       <div class="p-money">💰${(p.money||0).toLocaleString()} | 🎒${(p.team||[]).length}</div></div>`).join("");
-    const signature = JSON.stringify((room.tournament?.history || []).map(round => (round.matches || []).length));
+    renderSpectateStandings(room);
+    const signature = JSON.stringify((room.tournament?.history || []).map(round => (round.matches || []).map(match => [match.player1Id, match.player2Id, match.winnerId, match.score])));
     if (signature !== spectateMatchSignature) {
       spectateMatchSignature = signature;
       mountSpectateMatchChats(roomId, room);
@@ -2171,11 +2172,53 @@ function mountSpectateMatchChats(roomId, room) {
     if (match.isBye) return;
     const a = room.players?.[match.player1Id]?.name || "-", b = room.players?.[match.player2Id]?.name || "-";
     const id = `staff-match-${roundIndex}-${matchIndex}`;
-    sections.push(`<div class="match-chat"><b>รอบ ${round.round || roundIndex + 1}: ${escapeHtml(a)} VS ${escapeHtml(b)}</b><div class="chat-messages" id="${id}"></div></div>`);
-    subscriptions.push({ roundIndex, matchIndex, id });
+    const scoreOptions = room.settings?.bestOf === "BO3"
+      ? '<option value="2-0">2-0</option><option value="2-1">2-1</option><option value="1-2">1-2</option><option value="0-2">0-2</option>'
+      : '<option value="1-0">1-0</option><option value="0-1">0-1</option>';
+    const result = `<div class="admin-result-form"><span class="small-text">${match.winnerId ? `ผลปัจจุบัน: ${escapeHtml(room.players?.[match.winnerId]?.name || "-")} (${escapeHtml(match.score || "-")})` : "ยังไม่บันทึกผล"}</span><select id="${id}-winner"><option value="${match.player1Id}">${escapeHtml(a)} ชนะ</option><option value="${match.player2Id}">${escapeHtml(b)} ชนะ</option></select><select id="${id}-score">${scoreOptions}</select><button class="primary" data-admin-result-round="${roundIndex}" data-admin-result-match="${matchIndex}">💾 บันทึกผล</button></div>`;
+    sections.push(`<div class="match-chat"><b>รอบ ${round.round || roundIndex + 1}: ${escapeHtml(a)} VS ${escapeHtml(b)}</b>${result}<div class="chat-messages" id="${id}"></div></div>`);
+    subscriptions.push({ roundIndex, matchIndex, id, match });
   }));
   box.innerHTML = sections.join("") || '<p class="small-text">ยังไม่มีคู่แข่งขันหรือแชทเฉพาะคู่</p>';
   subscriptions.forEach(({ roundIndex, matchIndex, id }) => spectateChatUnsubs.push(onValue(ref(db, `rooms/${roomId}/matchChats/${roundIndex}/${matchIndex}`), snap => renderChatMessages(document.getElementById(id), snap.val()))));
+  box.querySelectorAll("button[data-admin-result-round]").forEach(button => button.addEventListener("click", async () => {
+    const roundIndex = +button.dataset.adminResultRound, matchIndex = +button.dataset.adminResultMatch;
+    const id = `staff-match-${roundIndex}-${matchIndex}`;
+    const winnerId = document.getElementById(`${id}-winner`).value;
+    const score = document.getElementById(`${id}-score`).value;
+    button.disabled = true;
+    try { await saveAdminMatchResult(roomId, roundIndex, matchIndex, winnerId, score); }
+    catch (error) { console.error("admin result failed:", error); alert("บันทึกผลไม่สำเร็จ กรุณาตรวจสอบสิทธิ์และลองใหม่"); }
+    finally { button.disabled = false; }
+  }));
+}
+
+function renderSpectateStandings(room) {
+  const table = document.getElementById("spectate-standings-table");
+  if (!table) return;
+  const standings = tournamentStats(room);
+  table.innerHTML = `<tr><th>#</th><th>ผู้เล่น</th><th>แข่ง</th><th>ชนะ</th><th>แพ้</th><th>แต้ม</th></tr>${standings.map((player, index) => `<tr><td>${index + 1}</td><td>${escapeHtml(player.name)}${room.players?.[player.pid]?.withdrawn ? " (ถอนตัว)" : ""}</td><td>${player.played}</td><td>${player.wins}</td><td>${player.losses}</td><td><b>${player.points}</b></td></tr>`).join("") || '<tr><td colspan="6" class="small-text">ยังไม่มีผู้เล่น</td></tr>'}`;
+}
+
+async function saveAdminMatchResult(roomId, roundIndex, matchIndex, winnerId, score) {
+  const roomSnap = await get(ref(db, `rooms/${roomId}`));
+  const room = roomSnap.val();
+  if (!room || !canManageRoom(room)) throw new Error("Not allowed");
+  const match = room.tournament?.history?.[roundIndex]?.matches?.[matchIndex];
+  const validScore = room.settings?.bestOf === "BO3" ? /^(2-[01]|[01]-2)$/.test(score) : score === "1-0" || score === "0-1";
+  const winnerMatchesScore = winnerId === match?.player1Id ? (score.startsWith("2") || score === "1-0") : (score.endsWith("2") || score === "0-1");
+  if (!match || match.isBye || !validScore || !winnerMatchesScore || ![match.player1Id, match.player2Id].includes(winnerId)) throw new Error("Invalid result");
+  await runTransaction(ref(db, `rooms/${roomId}/tournament`), tournament => {
+    const currentMatch = tournament?.history?.[roundIndex]?.matches?.[matchIndex];
+    if (!currentMatch) return tournament;
+    currentMatch.winnerId = winnerId;
+    currentMatch.score = score;
+    currentMatch.pendingWinnerId = null;
+    currentMatch.pendingScore = null;
+    currentMatch.reportedAt = Date.now();
+    currentMatch.reportedBy = `admin:${currentUser?.uid || "unknown"}`;
+    return tournament;
+  });
 }
 
 document.getElementById("btn-spectate-chat-send")?.addEventListener("click", () => {
