@@ -32,16 +32,20 @@ let disconnectCancelled = false;
 // ระบบสิทธิ์ / บทบาท (ตรวจสิทธิ์จริงที่ Firebase Rules — ฝั่งนี้แค่ใช้ซ่อน/โชว์ปุ่ม)
 let currentUser = null;
 let isOwner = false;
-let isCreator = false;
-let isModerator = false;
+let isOrganizer = false;
+let isStaff = false;
 let myAffiliation = null;
 let myRoleData = null;
+let roomNotificationsStarted = false;
+const seenAdminCalls = new Set();
 
 let currentArchiveId = null;
 let currentArchiveData = null;
 let archiveEditMode = false;
 let archivesDirty = false;
 let spectateRoomId = null;
+let spectateChatUnsubs = [];
+let spectateMatchSignature = "";
 
 // ---------- DOM ----------
 const screenHome = document.getElementById("screen-home");
@@ -77,22 +81,21 @@ tabJoin.addEventListener("click", () => {
 
 // ---------- สิทธิ์การใช้งาน (Permissions) ----------
 function canCreateRoom() {
-  return isOwner || isCreator;
+  return isOwner || isOrganizer;
 }
 
 function canEditArchive(archive) {
   if (!archive) return false;
   if (isOwner) return true;
-  if (isCreator && archive.creatorEmail && currentUser?.email === archive.creatorEmail) return true;
-  if (isModerator && archive.affiliation && myAffiliation && archive.affiliation === myAffiliation) return true;
+  if (isOrganizer && archive.creatorUid && currentUser?.uid === archive.creatorUid) return true;
   return false;
 }
 
 function canDeleteArchive(archive) {
   if (!archive) return false;
   if (isOwner) return true;
-  if (isCreator && archive.creatorEmail && currentUser?.email === archive.creatorEmail) return true;
-  return false; // ผู้ดูแลสังกัดลบไม่ได้
+  if (isOrganizer && archive.creatorUid && currentUser?.uid === archive.creatorUid) return true;
+  return false; // ลูกน้องลบไม่ได้
 }
 
 function updateCreateRoomGate() {
@@ -111,9 +114,9 @@ document.getElementById("btn-create").addEventListener("click", async () => {
     return;
   }
   const name = document.getElementById("create-name").value.trim();
-  const teamText = document.getElementById("create-team").value.trim();
   const maxPlayers = parseInt(document.getElementById("create-max-players").value);
   const mode = document.getElementById("create-room-mode").value;
+  const auctionSelector = document.getElementById("create-auction-selector").value;
   const phases = [document.getElementById("create-phase-1").value, document.getElementById("create-phase-2").value].filter(Boolean);
   const bestOf = document.getElementById("create-best-of").value;
   const checkIn = document.getElementById("create-checkin").value;
@@ -132,7 +135,7 @@ document.getElementById("btn-create").addEventListener("click", async () => {
     status: "waiting",
     settings: {
       maxPlayers: maxPlayers,
-      mode, phases, bestOf, checkIn, topCut, swissRounds,
+      mode, auctionSelector, phases, bestOf, checkIn, topCut, swissRounds,
       startMoney: 10000,
       minBidIncrement: 50,
       timerSeconds: 10,
@@ -148,7 +151,6 @@ document.getElementById("btn-create").addEventListener("click", async () => {
         pickTicketUsed: false,
         banTicketUsed: false,
         team: []
-        ,teamText
       }
     },
     memberUids: { [currentUser.uid]: true },
@@ -164,7 +166,6 @@ document.getElementById("btn-create").addEventListener("click", async () => {
 document.getElementById("btn-join").addEventListener("click", async () => {
   if (!currentUser) { homeError.textContent = "กรุณาเข้าสู่ระบบก่อนเข้าร่วมห้อง เพื่อคุ้มครองสิทธิ์และแชทของผู้เล่น"; return; }
   const name = document.getElementById("join-name").value.trim();
-  const teamText = document.getElementById("join-team").value.trim();
   const code = document.getElementById("join-code").value.trim().toUpperCase();
   if (!name) { homeError.textContent = "กรุณากรอกชื่อ"; return; }
   if (!code) { homeError.textContent = "กรุณากรอกรหัสห้อง"; return; }
@@ -190,7 +191,6 @@ document.getElementById("btn-join").addEventListener("click", async () => {
     pickTicketUsed: false,
     banTicketUsed: false,
     team: []
-    ,teamText
   });
 
   onDisconnect(ref(db, `rooms/${code}/players/${playerId}`)).remove();
@@ -311,6 +311,34 @@ function renderLobby(room) {
       : "รอผู้เล่น... (อย่างน้อย 2 คน)";
     if (playerIds.length < 2) startBtn.disabled = true;
   }
+
+  renderLobbyTeamEditor(room);
+}
+
+function teamSheetWithoutEvs(text) {
+  return String(text || "").replace(/\r?\nEVs:\s*[^\r\n]*/gi, "").trim();
+}
+
+function renderLobbyTeamEditor(room) {
+  const editor = document.getElementById("lobby-team-editor");
+  if (!editor) return;
+  const isNormalRoom = room.settings?.mode === "normal";
+  editor.classList.toggle("hidden", !isNormalRoom);
+  if (!isNormalRoom) return;
+  const player = room.players?.[currentPlayerId];
+  if (!player) return;
+  const input = document.getElementById("lobby-team-input");
+  const preview = document.getElementById("lobby-team-preview");
+  const save = document.getElementById("btn-save-lobby-team");
+  if (document.activeElement !== input) input.value = player.teamText || "";
+  const sheet = player.teamSheet || teamSheetWithoutEvs(player.teamText);
+  preview.textContent = sheet;
+  preview.classList.toggle("hidden", !sheet);
+  save.onclick = async () => {
+    const teamText = input.value.trim();
+    const teamSheet = teamSheetWithoutEvs(teamText);
+    await update(ref(db, `rooms/${currentRoomId}/players/${currentPlayerId}`), { teamText: teamText || null, teamSheet: teamSheet || null });
+  };
 }
 
 // ---------- Tournament engine ----------
@@ -594,6 +622,7 @@ async function updateRoom(mutator) {
 }
 
 function advanceTurn(room) {
+  if (room.settings?.auctionSelector === "organizer") return;
   const n = room.turnOrder.length;
   room.currentTurnIndex = (room.currentTurnIndex + 1) % n;
 }
@@ -710,7 +739,8 @@ function checkGameEnd(room) {
 async function nominatePokemon(poolKey) {
   await updateRoom((room) => {
     if (room.status !== "picking" || room.auction) return room;
-    if (room.turnOrder[room.currentTurnIndex] !== currentPlayerId) return room;
+    const organizerSelects = room.settings?.auctionSelector === "organizer";
+    if (organizerSelects ? currentPlayerId !== room.hostId : room.turnOrder[room.currentTurnIndex] !== currentPlayerId) return room;
     const poke = room.pool[poolKey];
     if (!poke || poke.status !== "available") return room;
     poke.status = "auctioning";
@@ -869,13 +899,18 @@ function renderGame(room) {
   document.getElementById("game-room-code").textContent = currentRoomId;
   if (!room.turnOrder) return;
 
-  const myTurnPid = room.turnOrder[room.currentTurnIndex];
+  const organizerSelects = room.settings?.auctionSelector === "organizer";
+  const myTurnPid = organizerSelects ? room.hostId : room.turnOrder[room.currentTurnIndex];
   const isMyTurn = myTurnPid === currentPlayerId;
   const me = room.players[currentPlayerId];
   const meFull = (me.team?.length || 0) >= room.settings.teamSize;
 
   const turnIndicator = document.getElementById("turn-indicator");
-  if (isMyTurn) {
+  if (organizerSelects) {
+    turnIndicator.textContent = isHost
+      ? "🧭 คุณเป็นผู้จัด เลือกโปเกม่อนขึ้นประมูลได้"
+      : `🧭 ผู้จัด (${room.players[room.hostId]?.name || "-"}) กำลังเลือกโปเกม่อนขึ้นประมูล`;
+  } else if (isMyTurn) {
     turnIndicator.textContent = meFull
       ? "🎯 ตาของคุณ (ทีมเต็มแล้ว แต่ยังเสนอประมูลให้คนอื่นได้)"
       : "🎯 ตาของคุณ! เลือกโปเกม่อนขึ้นประมูล";
@@ -1058,7 +1093,8 @@ function renderPool(room, isMyTurn, me) {
       html += `<div class="owner-tag">🗑️ ตกไปแล้ว</div>`;
     } else {
       html += `<div class="card-actions">`;
-      if (poke.status === "available" && !room.auction && isMyTurn) {
+      const canNominate = room.settings?.auctionSelector === "organizer" ? isHost : isMyTurn;
+      if (poke.status === "available" && !room.auction && canNominate) {
         html += `<button class="btn-nominate" data-action="nominate" data-id="${poke.id}">เสนอประมูล</button>`;
       }
       if (poke.status === "available" && !me.banTicketUsed) {
@@ -1385,7 +1421,7 @@ function renderArchiveBox(room) {
     btn.textContent = "💾 บันทึกทัวร์นาเมนต์ (ให้ทุกคนดูได้)";
   }
 
-  const pseudoArchive = { creatorEmail: room.creatorEmail, affiliation: room.affiliation };
+  const pseudoArchive = { creatorUid: room.creatorUid, affiliation: room.affiliation };
   const canUseControls = saved ? (isHost && canEditArchive(pseudoArchive)) : isHost;
   controlsEl.classList.toggle("hidden", !canUseControls);
   if (saved && !canUseControls) {
@@ -1422,6 +1458,7 @@ async function saveOrUpdateArchive() {
     const snapshot = {
       name,
       roomId: currentRoomId,
+      creatorUid: room.creatorUid || null,
       creatorEmail: room.creatorEmail || null,
       affiliation: room.affiliation || null,
       hostName: (room.players && room.players[room.hostId]?.name) || "-",
@@ -1751,22 +1788,26 @@ document.getElementById("btn-archive-detail-back").addEventListener("click", () 
 // (ฝั่งหน้าเว็บแค่ซ่อน/โชว์ปุ่ม)
 // =====================================================================
 const emailKey = (email) => String(email || "").trim().toLowerCase().replace(/\./g, ",");
+// เจ้าของเว็บเริ่มต้น: ใช้สำหรับ bootstrap สิทธิ์ครั้งแรก ก่อนมีข้อมูลใน Firebase /admins
+const OWNER_EMAIL = "chanatun73344@gmail.com";
 
 onAuthStateChanged(auth, async (user) => {
   currentUser = user;
   isOwner = false;
-  isCreator = false;
-  isModerator = false;
+  isOrganizer = false;
+  isStaff = false;
   myAffiliation = null;
   myRoleData = null;
   if (user && user.email) {
+    isOwner = String(user.email).trim().toLowerCase() === OWNER_EMAIL;
     try {
       const snap = await get(ref(db, `admins/${emailKey(user.email)}`));
       myRoleData = snap.exists() ? snap.val() : null;
       const role = myRoleData?.role;
-      isOwner = role === "owner";
-      isCreator = role === "creator" || isOwner;
-      isModerator = role === "moderator";
+      isOwner = String(user.email).trim().toLowerCase() === OWNER_EMAIL || role === "owner";
+      // รองรับข้อมูลเดิม creator/moderator เพื่อไม่ตัดสิทธิ์ทีมงานเก่า
+      isOrganizer = role === "organizer" || role === "creator" || isOwner;
+      isStaff = role === "staff" || role === "moderator";
       myAffiliation = myRoleData?.affiliation || null;
     } catch (e) {
       console.error("check role error:", e);
@@ -1775,6 +1816,8 @@ onAuthStateChanged(auth, async (user) => {
   if (!isOwner) archiveEditMode = false;
   updateAuthUI();
   updateCreateRoomGate();
+  if (isOwner) loadRoleRequests();
+  if ((isOrganizer || isStaff) && !roomNotificationsStarted) startOwnTournamentNotifications();
 });
 
 function updateAuthUI() {
@@ -1785,8 +1828,8 @@ function updateAuthUI() {
   if (currentUser) {
     let roleLabel = " (ไม่มีสิทธิ์พิเศษ)";
     if (isOwner) roleLabel = " (เจ้าของเว็บ)";
-    else if (isCreator) roleLabel = " (ผู้สร้างห้อง)";
-    else if (isModerator) roleLabel = ` (ผู้ดูแลสังกัด: ${myAffiliation || "-"})`;
+    else if (isOrganizer) roleLabel = " (คนจัดงาน)";
+    else if (isStaff) roleLabel = ` (ลูกน้อง${myAffiliation ? `: ${myAffiliation}` : ""})`;
     document.getElementById("auth-email").textContent = (currentUser.email || "") + roleLabel;
   }
 
@@ -1798,6 +1841,10 @@ function updateAuthUI() {
   }
   document.getElementById("admin-panel").classList.toggle("hidden", !isOwner);
   document.getElementById("admin-spectate-box")?.classList.toggle("hidden", !isOwner);
+  const requestBtn = document.getElementById("btn-request-role");
+  requestBtn?.classList.toggle("hidden", !currentUser || isOwner || isOrganizer || isStaff);
+  document.getElementById("btn-open-organizer-dashboard")?.classList.toggle("hidden", !isOrganizer && !isOwner);
+  document.getElementById("role-request-status")?.classList.add("hidden");
   if (isOwner) loadAdminList();
   if (latestRoom && latestRoom.status === "finished") renderArchiveBox(latestRoom);
 }
@@ -1816,6 +1863,27 @@ document.getElementById("btn-login").addEventListener("click", async () => {
   }
 });
 document.getElementById("btn-logout").addEventListener("click", () => signOut(auth));
+
+document.getElementById("btn-open-organizer-dashboard")?.addEventListener("click", () => {
+  const roomId = prompt("กรอกรหัสห้องทัวร์นาเมนต์ที่คุณสร้าง");
+  if (roomId) openSpectate(roomId.trim().toUpperCase());
+});
+
+document.getElementById("btn-request-role")?.addEventListener("click", async () => {
+  if (!currentUser?.email) return;
+  try {
+    await set(ref(db, `roleRequests/${emailKey(currentUser.email)}`), {
+      email: currentUser.email.toLowerCase(), uid: currentUser.uid, requestedAt: Date.now(), status: "pending"
+    });
+    const status = document.getElementById("role-request-status");
+    status.textContent = "ส่งคำขอถึงเจ้าของแล้ว";
+    status.classList.remove("hidden");
+    document.getElementById("btn-request-role").classList.add("hidden");
+  } catch (e) {
+    console.error("request role error:", e);
+    alert("ส่งคำขอไม่สำเร็จ กรุณาลองใหม่");
+  }
+});
 
 // --- ลบ / แก้ไขทัวร์นาเมนต์
 async function deleteArchive(id, name) {
@@ -1881,7 +1949,7 @@ document.getElementById("btn-archive-rename").addEventListener("click", () => {
   applyArchiveEdit({ name });
 });
 
-// --- เจ้าของเว็บจัดการรายชื่อผู้มีสิทธิ์ (ผู้สร้างห้อง / ผู้ดูแลสังกัด)
+// --- เจ้าของเว็บจัดการรายชื่อผู้มีสิทธิ์
 async function loadAdminList() {
   const listEl = document.getElementById("admin-list");
   try {
@@ -1891,7 +1959,7 @@ async function loadAdminList() {
       const email = key.replace(/,/g, ".");
       const role = (typeof data === "object" ? data?.role : data) || "owner";
       const aff = typeof data === "object" ? data?.affiliation : null;
-      const roleLabel = role === "owner" ? "OWNER" : role === "creator" ? "ผู้สร้างห้อง" : "ผู้ดูแลสังกัด";
+      const roleLabel = role === "owner" ? "OWNER" : (role === "organizer" || role === "creator") ? "คนจัดงาน" : "ลูกน้อง";
       return `<li>
         <span>${escapeHtml(email)}${aff ? ` <span class="badge aff-badge">${escapeHtml(aff)}</span>` : ""}</span>
         ${role === "owner"
@@ -1927,7 +1995,7 @@ document.getElementById("btn-add-admin").addEventListener("click", async () => {
   const affiliation = affInput.value.trim();
 
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert("อีเมลไม่ถูกต้อง"); return; }
-  if (!affiliation) { alert("กรุณาระบุชื่อสังกัด"); return; }
+  if (role === "staff" && !affiliation) { alert("กรุณาระบุชื่อสังกัดสำหรับลูกน้อง"); return; }
 
   try {
     await set(ref(db, `admins/${emailKey(email)}`), { role, affiliation });
@@ -1944,12 +2012,15 @@ document.getElementById("btn-add-admin").addEventListener("click", async () => {
 // โหมดตรวจสอบห้องแข่งขันสด (เฉพาะเจ้าของเว็บ) - ดู + แชทได้ทุกห้อง
 // =====================================================================
 document.getElementById("btn-spectate-room")?.addEventListener("click", () => {
-  if (!isOwner) return;
+  if (!isOwner && !isOrganizer) return;
   const code = document.getElementById("spectate-room-code").value.trim().toUpperCase();
   if (code) openSpectate(code);
 });
 
-function openSpectate(roomId) {
+async function openSpectate(roomId) {
+  const roomSnap = await get(ref(db, "rooms/" + roomId));
+  if (!roomSnap.exists()) { alert("ไม่พบห้องนี้"); return; }
+  if (!canManageRoom(roomSnap.val())) { alert("คุณดูแลได้เฉพาะทัวร์นาเมนต์ที่คุณสร้างเอง"); return; }
   hideAllTopScreens();
   screenSpectate.classList.remove("hidden");
   document.getElementById("spectate-room-code-title").textContent = roomId;
@@ -1962,6 +2033,11 @@ function openSpectate(roomId) {
     strip.innerHTML = Object.values(room.players || {}).map(p => `
       <div class="player-chip"><div>${escapeHtml(p.name)}${p.isHost ? ' 👑' : ''}</div>
       <div class="p-money">💰${(p.money||0).toLocaleString()} | 🎒${(p.team||[]).length}</div></div>`).join("");
+    const signature = JSON.stringify((room.tournament?.history || []).map(round => (round.matches || []).length));
+    if (signature !== spectateMatchSignature) {
+      spectateMatchSignature = signature;
+      mountSpectateMatchChats(roomId, room);
+    }
   });
 
   onValue(ref(db, `rooms/${roomId}/adminChat`), snap => renderChatMessages(document.getElementById("spectate-chat-messages"), snap.val()));
@@ -1969,14 +2045,32 @@ function openSpectate(roomId) {
     const calls=Object.values(snap.val()||{}).filter(c=>c.status!=="closed").sort((a,b)=>b.time-a.time);
     document.getElementById("spectate-admin-calls").innerHTML=calls.length?`<b>🆘 คำขอเรียกแอดมิน</b>${calls.map(c=>`<div>${escapeHtml(c.name)} — ${formatTournamentDate(c.time)}</div>`).join("")}`:"<span class=\"small-text\">ไม่มีคำขอเรียกแอดมิน</span>";
   });
+  mountSpectateMatchChats(roomId, roomSnap.val());
+}
+
+function mountSpectateMatchChats(roomId, room) {
+  spectateChatUnsubs.forEach(unsub => unsub());
+  spectateChatUnsubs = [];
+  const box = document.getElementById("spectate-match-chats");
+  const sections = [];
+  const subscriptions = [];
+  (room.tournament?.history || []).forEach((round, roundIndex) => (round.matches || []).forEach((match, matchIndex) => {
+    if (match.isBye) return;
+    const a = room.players?.[match.player1Id]?.name || "-", b = room.players?.[match.player2Id]?.name || "-";
+    const id = `staff-match-${roundIndex}-${matchIndex}`;
+    sections.push(`<div class="match-chat"><b>รอบ ${round.round || roundIndex + 1}: ${escapeHtml(a)} VS ${escapeHtml(b)}</b><div class="chat-messages" id="${id}"></div></div>`);
+    subscriptions.push({ roundIndex, matchIndex, id });
+  }));
+  box.innerHTML = sections.join("") || '<p class="small-text">ยังไม่มีคู่แข่งขันหรือแชทเฉพาะคู่</p>';
+  subscriptions.forEach(({ roundIndex, matchIndex, id }) => spectateChatUnsubs.push(onValue(ref(db, `rooms/${roomId}/matchChats/${roundIndex}/${matchIndex}`), snap => renderChatMessages(document.getElementById(id), snap.val()))));
 }
 
 document.getElementById("btn-spectate-chat-send")?.addEventListener("click", () => {
   const input = document.getElementById("spectate-chat-input");
   const text = input.value.trim();
-  if (!text || !spectateRoomId || !isOwner) return;
+  if (!text || !spectateRoomId || (!isOwner && !isOrganizer)) return;
   push(ref(db, `rooms/${spectateRoomId}/adminChat`), {
-    name: "🛡️ เจ้าของเว็บ",
+    name: isOwner ? "🛡️ เจ้าของเว็บ" : "🧭 คนจัดงาน",
     text,
     time: Date.now(),
     isOwnerMsg: true
@@ -1988,7 +2082,52 @@ document.getElementById("spectate-chat-input")?.addEventListener("keydown", (e) 
 });
 
 document.getElementById("btn-spectate-back")?.addEventListener("click", () => {
+  spectateChatUnsubs.forEach(unsub => unsub());
+  spectateChatUnsubs = [];
+  spectateMatchSignature = "";
   spectateRoomId = null;
   hideAllTopScreens();
   screenArchives.classList.remove("hidden");
 });
+
+async function loadRoleRequests() {
+  const list = document.getElementById("role-request-list");
+  if (!list || !isOwner) return;
+  try {
+    const snap = await get(ref(db, "roleRequests"));
+    const requests = Object.entries(snap.val() || {}).filter(([, item]) => item?.status === "pending");
+    list.innerHTML = requests.map(([key, item]) => `<li><span>${escapeHtml(item.email || key.replace(/,/g, "."))}</span><span><button class="btn-leave-small" data-approve-request="${escapeHtml(key)}">อนุมัติเป็นคนจัดงาน</button> <button class="btn-leave-small" data-deny-request="${escapeHtml(key)}">ปฏิเสธ</button></span></li>`).join("") || "<li>ไม่มีคำขอค้างอยู่</li>";
+    list.querySelectorAll("[data-approve-request]").forEach(btn => btn.addEventListener("click", async () => {
+      const key = btn.dataset.approveRequest;
+      const request = (await get(ref(db, `roleRequests/${key}`))).val();
+      if (!request?.email) return;
+      await update(ref(db), { [`admins/${key}`]: { role: "organizer", grantedAt: Date.now() }, [`roleRequests/${key}/status`]: "approved" });
+      loadAdminList(); loadRoleRequests();
+    }));
+    list.querySelectorAll("[data-deny-request]").forEach(btn => btn.addEventListener("click", async () => {
+      await update(ref(db, `roleRequests/${btn.dataset.denyRequest}`), { status: "denied", handledAt: Date.now() });
+      loadRoleRequests();
+    }));
+  } catch (e) { console.error("load role requests error:", e); }
+}
+
+function canManageRoom(room) {
+  return !!room && (isOwner || (isOrganizer && room.creatorUid === currentUser?.uid));
+}
+
+function startOwnTournamentNotifications() {
+  roomNotificationsStarted = true;
+  if ("Notification" in window && Notification.permission === "default") Notification.requestPermission();
+  onValue(ref(db, "rooms"), snap => {
+    Object.entries(snap.val() || {}).forEach(([roomId, room]) => {
+      if (!canManageRoom(room)) return;
+      Object.entries(room.adminCalls || {}).forEach(([callId, call]) => {
+        const key = `${roomId}/${callId}`;
+        if (seenAdminCalls.has(key) || call.status === "closed") return;
+        seenAdminCalls.add(key);
+        const message = `${call.name || "ผู้เล่น"} เรียกแอดมินในห้อง ${roomId}`;
+        if ("Notification" in window && Notification.permission === "granted") new Notification("VGC Lab", { body: message });
+      });
+    });
+  });
+}

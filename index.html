@@ -21,9 +21,10 @@
 
     <div id="form-create">
       <input type="text" id="create-name" placeholder="ชื่อของคุณ" maxlength="20">
-      <input type="text" id="create-team" placeholder="ทีมของคุณ (ลิงก์/ข้อความ ไม่บังคับ)" maxlength="500">
       <label class="field-label">โหมดห้อง</label>
       <select id="create-room-mode"><option value="auction">แบบประมูล (Auction)</option><option value="normal">แบบปกติ (Normal)</option></select>
+      <label class="field-label">ลำดับผู้เลือกโปเกม่อนขึ้นประมูล</label>
+      <select id="create-auction-selector"><option value="rotation">วนตามตาผู้เล่น (ปกติ)</option><option value="organizer">ผู้จัดเลือกขึ้นประมูลคนเดียว</option></select>
       <label class="field-label">รูปแบบการแข่งขัน (สูงสุด 2 เฟส)</label>
       <div class="format-row"><select id="create-phase-1"><option value="swiss">Swiss</option><option value="single">Single Elimination</option><option value="double">Double Elimination</option><option value="roundRobin">Round Robin</option></select><select id="create-phase-2"><option value="">ไม่มีเฟส 2</option><option value="swiss">Swiss</option><option value="single">Single Elimination</option><option value="double">Double Elimination</option><option value="roundRobin">Round Robin</option></select></div>
       <div class="format-row"><select id="create-best-of"><option value="BO1">BO1</option><option value="BO3">BO3</option></select><select id="create-checkin"><option value="everyRound">เช็คอินทุกรอบ</option><option value="once">เช็คอินรอบเดียว</option><option value="perPhase">เช็คอิน 1 รอบต่อเฟส</option></select></div>
@@ -40,7 +41,6 @@
 
     <div id="form-join" class="hidden">
       <input type="text" id="join-name" placeholder="ชื่อของคุณ" maxlength="20">
-      <input type="text" id="join-team" placeholder="ทีมของคุณ (ลิงก์/ข้อความ ไม่บังคับ)" maxlength="500">
       <input type="text" id="join-code" placeholder="รหัสห้อง (6 หลัก)" maxlength="6" style="text-transform:uppercase">
       <button class="primary" id="btn-join">เข้าห้อง</button>
     </div>
@@ -49,6 +49,9 @@
 
     <button class="primary" id="btn-open-archives" style="background:#4dd0e1;">📚 ดูทัวร์นาเมนต์ย้อนหลัง</button>
     <button class="primary" id="btn-open-my-history" style="background:#7e57c2;">🕘 ประวัติของฉัน</button>
+    <button class="primary hidden" id="btn-open-organizer-dashboard" style="background:#4dd0e1;">🧭 ศูนย์ดูแลทัวร์ของฉัน</button>
+    <button class="primary hidden" id="btn-request-role" style="background:#ffcb05;">📝 ขอสิทธิ์คนจัดงาน</button>
+    <p class="small-text hidden" id="role-request-status"></p>
 
     <!-- เข้าสู่ระบบแอดมิน/ผู้สร้างห้อง/ผู้ดูแลสังกัด -->
     <div class="auth-bar">
@@ -82,6 +85,13 @@
     <div class="room-code" id="lobby-room-code">------</div>
     <p class="small-text" id="lobby-count">ผู้เล่น 0/0</p>
     <ul class="player-list" id="lobby-player-list"></ul>
+    <section class="team-editor hidden" id="lobby-team-editor">
+      <h3>📝 โค้ดทีม</h3>
+      <p class="small-text">ใช้กับห้องแบบปกติเท่านั้น แก้ไขได้จนกว่าผู้จัดจะเริ่มเกม ระบบจะสร้าง Team Sheet โดยตัดเฉพาะบรรทัด EVs ออก</p>
+      <textarea id="lobby-team-input" rows="14" placeholder="วางโค้ดทีมจาก Pokémon Showdown ที่นี่"></textarea>
+      <button class="primary" id="btn-save-lobby-team">บันทึก Team Sheet</button>
+      <pre class="team-sheet-preview hidden" id="lobby-team-preview"></pre>
+    </section>
     <button class="primary" id="btn-start" disabled>รอผู้เล่น... (อย่างน้อย 2 คน)</button>
     <p class="small-text" id="lobby-wait-msg">รอโฮสต์เริ่มเกม...</p>
     <button class="primary btn-danger" id="btn-leave-lobby">🚪 ออกจากห้อง</button>
@@ -206,18 +216,22 @@
 
     <!-- จัดการผู้มีสิทธิ์ (เห็นเฉพาะเจ้าของเว็บ) -->
     <div id="admin-panel" class="admin-panel hidden">
-      <h3>🔑 ผู้ที่มีสิทธิ์สร้างห้อง / ดูแลสังกัด</h3>
-      <p class="small-text">เพิ่มอีเมล Google ของคนที่ไว้ใจ เขาต้องกด "เข้าสู่ระบบ" ด้วยอีเมลนั้น</p>
+      <h3>🔑 จัดการสิทธิ์ทีมงาน</h3>
+      <p class="small-text">เจ้าของเพิ่มสิทธิ์ได้ 2 ระดับ: คนจัดงานสร้าง/ลบทัวร์ของตนเองได้, ลูกน้องช่วยดูแชทและรับแจ้งเรียกแอดมินของทัวร์ที่ได้รับมอบหมาย</p>
       <div class="admin-add-row">
         <input type="email" id="admin-email-input" placeholder="อีเมล Google">
         <select id="admin-role-select">
-          <option value="creator">ผู้สร้างห้อง</option>
-          <option value="moderator">ผู้ดูแลสังกัด</option>
+          <option value="organizer">คนจัดงาน</option>
+          <option value="staff">ลูกน้อง</option>
         </select>
         <input type="text" id="admin-affiliation-input" placeholder="ชื่อสังกัด">
         <button class="primary" id="btn-add-admin">➕ เพิ่ม</button>
       </div>
       <ul class="player-list" id="admin-list"></ul>
+      <div class="admin-spectate-box">
+        <h3>📨 คำขอสิทธิ์</h3>
+        <ul class="player-list" id="role-request-list"></ul>
+      </div>
 
       <!-- กล่องสำหรับเจ้าของเว็บตรวจสอบห้องแข่งขันสด -->
       <div class="admin-spectate-box" id="admin-spectate-box">
@@ -267,21 +281,25 @@
     </div>
   </div>
 
-  <!-- โหมดตรวจสอบห้องแข่งขันสด (เฉพาะเจ้าของเว็บ) -->
+  <!-- โหมดตรวจสอบห้องแข่งขันสด (เจ้าของและคนจัดงานของห้องนั้น) -->
   <div id="screen-spectate" class="card hidden">
     <div class="game-header">
-      <h2 style="margin:0;">👁️ โหมดตรวจสอบ: <span id="spectate-room-code-title">-</span></h2>
+      <h2 style="margin:0;">👁️ ศูนย์ดูแลทัวร์: <span id="spectate-room-code-title">-</span></h2>
       <button class="btn-leave-small" id="btn-spectate-back">⬅ ปิด</button>
     </div>
     <div class="players-strip" id="spectate-players-strip"></div>
     <div id="spectate-admin-calls" class="admin-help"></div>
     <div class="chat-box">
-      <h3 style="margin-bottom:10px;">💬 แชททีมงาน (เจ้าของเว็บตอบได้ทุกห้อง)</h3>
+      <h3 style="margin-bottom:10px;">💬 แชททีมงาน</h3>
       <div class="chat-messages" id="spectate-chat-messages"></div>
       <div class="chat-input-row">
         <input type="text" id="spectate-chat-input" placeholder="พิมพ์ข้อความในฐานะแอดมิน..." maxlength="200">
         <button id="btn-spectate-chat-send">ส่ง</button>
       </div>
+    </div>
+    <div class="chat-box">
+      <h3 style="margin-bottom:10px;">💬 แชทแต่ละคู่แข่งขัน</h3>
+      <div id="spectate-match-chats" class="match-chat-list"></div>
     </div>
   </div>
 </div>

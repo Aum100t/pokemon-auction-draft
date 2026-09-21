@@ -6,6 +6,8 @@
 .admin-add-row select { flex: 0 0 140px; padding: 12px; border-radius: 8px; border: none; }
 .admin-add-row input[type="text"], .admin-add-row input[type="email"] { flex: 1; min-width: 160px; }
 .admin-spectate-box { background: rgba(255,255,255,0.06); border-radius: 14px; padding: 16px; margin-top: 16px; }
+.match-chat-list { display:grid; gap:10px; }
+.match-chat-list .chat-messages { max-height:150px; }
 
 /* ===== กล่องแชท (ในห้องเกม + โหมดตรวจสอบ) ===== */
 .chat-box { background: rgba(255,255,255,0.06); border-radius: 12px; padding: 14px; margin-top: 18px; }
