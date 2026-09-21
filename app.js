@@ -302,16 +302,23 @@ function renderLobby(room) {
   const players = room.players || {};
   const playerIds = competitivePlayerIds(room);
   const maxPlayers = room.settings.maxPlayers;
-  const playersMissingTeamSheet = playerIds.filter(pid => !hasSubmittedTeamSheet(players[pid]));
+  const requiresTeamSheet = room.settings?.mode !== "auction";
+  const playersMissingTeamSheet = requiresTeamSheet ? playerIds.filter(pid => !hasSubmittedTeamSheet(players[pid])) : [];
+  const submittedTeamSheets = playerIds.length - playersMissingTeamSheet.length;
 
   document.getElementById("lobby-count").textContent = `ผู้เล่น ${playerIds.length}/${maxPlayers}`;
+  const teamSheetCount = document.getElementById("lobby-team-sheet-count");
+  if (teamSheetCount) {
+    teamSheetCount.classList.toggle("hidden", !requiresTeamSheet);
+    if (requiresTeamSheet) teamSheetCount.innerHTML = `<span>📄 Team Sheet</span><b>${submittedTeamSheets}/${playerIds.length || 0} คนส่งแล้ว</b><div class="team-sheet-progress-bar"><i style="width:${playerIds.length ? Math.round(submittedTeamSheets / playerIds.length * 100) : 0}%"></i></div>`;
+  }
 
   const listEl = document.getElementById("lobby-player-list");
   listEl.innerHTML = "";
   Object.keys(players).forEach((pid) => {
     const p = players[pid];
     const li = document.createElement("li");
-    li.innerHTML = `<span>${escapeHtml(p.name)}</span>${p.isHost ? '<span class="badge">HOST</span>' : ''}${p.isSpectator ? '<span class="badge">SPECTATOR</span>' : ''}${!p.isSpectator ? (hasSubmittedTeamSheet(p) ? '<span class="badge team-sheet-ready">📄 ส่ง Team Sheet แล้ว</span>' : '<span class="badge team-sheet-missing">⏳ รอ Team Sheet</span>') : ''}`;
+    li.innerHTML = `<span>${escapeHtml(p.name)}</span>${p.isHost ? '<span class="badge">HOST</span>' : ''}${p.isSpectator ? '<span class="badge">SPECTATOR</span>' : ''}${requiresTeamSheet && !p.isSpectator ? (hasSubmittedTeamSheet(p) ? '<span class="badge team-sheet-ready">📄 ส่ง Team Sheet แล้ว</span>' : '<span class="badge team-sheet-missing">⏳ รอ Team Sheet</span>') : ''}`;
     listEl.appendChild(li);
   });
 
@@ -320,9 +327,11 @@ function renderLobby(room) {
     startBtn.disabled = playerIds.length < 2 || playersMissingTeamSheet.length > 0;
     startBtn.textContent = playerIds.length < 2
       ? "รอผู้เล่น... (อย่างน้อย 2 คน)"
-      : playersMissingTeamSheet.length
-        ? `รอ Team Sheet อีก ${playersMissingTeamSheet.length} คน`
-        : `เริ่มเกม (${playerIds.length} คน • ส่ง Team Sheet ครบแล้ว)`;
+      : !requiresTeamSheet
+        ? `เริ่มประมูล (${playerIds.length} คน)`
+        : playersMissingTeamSheet.length
+          ? `รอ Team Sheet อีก ${playersMissingTeamSheet.length} คน`
+          : `เริ่มเกม (${playerIds.length} คน • ส่ง Team Sheet ครบแล้ว)`;
   }
 
   renderLobbyTeamEditor(room);
@@ -340,8 +349,9 @@ function renderLobbyTeamEditor(room) {
   const editor = document.getElementById("lobby-team-editor");
   if (!editor) return;
   const player = room.players?.[currentPlayerId];
-  editor.classList.toggle("hidden", !!player?.isSpectator);
-  if (player?.isSpectator) return;
+  const requiresTeamSheet = room.settings?.mode !== "auction";
+  editor.classList.toggle("hidden", !!player?.isSpectator || !requiresTeamSheet);
+  if (player?.isSpectator || !requiresTeamSheet) return;
   if (!player) return;
   const input = document.getElementById("lobby-team-input");
   const preview = document.getElementById("lobby-team-preview");
@@ -387,7 +397,7 @@ function shouldCheckIn(room) {
 async function startTournament(roomId) {
   await runTransaction(ref(db,"rooms/"+roomId), room => {
     if(!room || room.status !== "waiting") return room;
-    if (competitivePlayerIds(room).some(pid => !hasSubmittedTeamSheet(room.players?.[pid]))) return room;
+    if (room.settings?.mode !== "auction" && competitivePlayerIds(room).some(pid => !hasSubmittedTeamSheet(room.players?.[pid]))) return room;
     room.status="tournament"; room.tournament=initialTournament(room); return room;
   });
 }
@@ -481,12 +491,19 @@ function parseTeamSheetProfile(text) {
   }).filter(member => member.pokemon).slice(0, 6);
 }
 function tournamentTeamOf(player) {
+  if (Array.isArray(player?.team) && player.team.length) return player.team.map(member => ({
+    pokemon: member.displayName || "Pokémon",
+    moves: [],
+    item: member.price ? `ประมูล ${Number(member.price).toLocaleString()}` : (member.viaTicket ? "รับจากตั๋ว" : (member.viaRandom ? "สุ่มให้" : "")),
+    nature: ""
+  }));
   return parseTeamSheetProfile(player?.teamSheet || player?.teamText);
 }
 function profileOf(player) { return tournamentTeamOf(player); }
 function teamPreviewHtml(player, key) {
   const profile=profileOf(player); if(!profile.length) return `<p class="small-text">ยังไม่ได้บันทึกข้อมูลทีม</p>`;
-  return `<button class="team-toggle" data-team-toggle="${key}">👁️ ดูทีมของ ${escapeHtml(player?.name || "ผู้เล่น")}</button><div id="team-preview-${key}" class="team-preview hidden"><b class="team-preview-owner">ทีมของ ${escapeHtml(player?.name || "ผู้เล่น")}</b>${profile.map(p=>`<div><b>${escapeHtml(p.pokemon)}</b>${p.item?` — ${escapeHtml(p.item)}`:""}${p.nature?` (${escapeHtml(p.nature)})`:""}${p.moves?.length?`<br><span class="small-text">${p.moves.map(escapeHtml).join(" · ")}</span>`:""}</div>`).join("")}</div>`;
+  const source = Array.isArray(player?.team) && player.team.length ? "ทีมจากการประมูล" : "Team Sheet";
+  return `<button class="team-toggle" data-team-toggle="${key}">👁️ ดูทีมของ ${escapeHtml(player?.name || "ผู้เล่น")}</button><div id="team-preview-${key}" class="team-preview hidden"><b class="team-preview-owner">${source} ของ ${escapeHtml(player?.name || "ผู้เล่น")}</b>${profile.map(p=>`<div><b>${escapeHtml(p.pokemon)}</b>${p.item?` — ${escapeHtml(p.item)}`:""}${p.nature?` (${escapeHtml(p.nature)})`:""}${p.moves?.length?`<br><span class="small-text">${p.moves.map(escapeHtml).join(" · ")}</span>`:""}</div>`).join("")}</div>`;
 }
 function bindTeamToggles(root) { root.querySelectorAll("button[data-team-toggle]").forEach(btn=>btn.addEventListener("click",()=>document.getElementById("team-preview-"+btn.dataset.teamToggle)?.classList.toggle("hidden"))); }
 function renderMetaAnalytics(room) {
@@ -593,7 +610,7 @@ function renderTournament(room) {
   const pairs=document.getElementById("tournament-pairings");
   if(t.championId) pairs.innerHTML=`<div class="match-card"><h3>👑 แชมป์: ${escapeHtml(room.players[t.championId]?.name||"-")}</h3></div>`;
   else if(!current) { pairs.innerHTML=`<p class="small-text">กำลังสร้างคู่แข่งขันรอบแรก...</p>`; ensureFirstTournamentRound(); }
-  else pairs.innerHTML=`<h3>รอบ ${current.round} — ${tournamentLabel(current.format)}</h3>`+current.matches.map((m,i)=>{const a=room.players[m.player1Id]?.name||"-",b=m.player2Id?room.players[m.player2Id]?.name:"BYE",canReport=isHost||currentPlayerId===m.player1Id||currentPlayerId===m.player2Id,chatId=`match-chat-${t.history.length-1}-${i}`; const scoreOptions=room.settings.bestOf==="BO3"?'<option value="2-0">2-0</option><option value="2-1">2-1</option><option value="1-2">1-2</option><option value="0-2">0-2</option>':'<option value="1-0">1-0</option><option value="0-1">0-1</option>'; const controls=canReport&&!m.isBye&&!m.winnerId?`<div class="report-controls score-entry"><label>สกอร์ (${escapeHtml(a)} - ${escapeHtml(b)})<select data-score-match="${i}">${scoreOptions}</select></label><button data-save-result="${i}">บันทึกผล</button></div>`:""; const chat=canReport&&!m.isBye?`<div class="match-chat"><b>💬 แชทเฉพาะคู่แข่งขัน</b><div class="chat-messages" id="${chatId}-messages"></div><div class="chat-input-row"><input id="${chatId}-input" maxlength="300" placeholder="คุยกับคู่แข่ง"><button id="${chatId}-send">ส่ง</button></div></div>`:""; const pending=m.pendingWinnerId?`รายงาน: ${escapeHtml(room.players[m.pendingWinnerId]?.name||"")} ชนะ (${m.pendingScore||"-"}) — แก้ไขได้ 10 วินาที` : "รอรายงานผล";return `<div class="match-card"><div class="match-players"><span>${escapeHtml(a)}</span><span class="vs">VS</span><span>${escapeHtml(b)}</span></div><p class="small-text">${m.isBye?"ชนะบาย":m.winnerId?`ผู้ชนะ: ${escapeHtml(room.players[m.winnerId]?.name||"")} (${m.score||"-"})`:pending}</p>${controls}${teamPreviewHtml(room.players[m.player1Id],`match-${i}-a`)}${m.player2Id?teamPreviewHtml(room.players[m.player2Id],`match-${i}-b`):""}${chat}</div>`}).join("");
+  else pairs.innerHTML=`<h3>รอบ ${current.round} — ${tournamentLabel(current.format)}</h3>`+current.matches.map((m,i)=>{const a=room.players[m.player1Id]?.name||"-",b=m.player2Id?room.players[m.player2Id]?.name:"BYE",canReport=isHost||currentPlayerId===m.player1Id||currentPlayerId===m.player2Id,chatId=`match-chat-${t.history.length-1}-${i}`; const scoreOptions=room.settings.bestOf==="BO3"?'<option value="2-0">2 – 0</option><option value="2-1">2 – 1</option><option value="1-2">1 – 2</option><option value="0-2">0 – 2</option>':'<option value="1-0">1 – 0</option><option value="0-1">0 – 1</option>'; const controls=canReport&&!m.isBye&&!m.winnerId?`<div class="report-controls score-entry"><div class="score-entry-title"><span>🏁 บันทึกผลการแข่งขัน</span><small>สกอร์เรียง: ${escapeHtml(a)} – ${escapeHtml(b)}</small></div><label><span>เลือกสกอร์</span><select data-score-match="${i}">${scoreOptions}</select></label><button data-save-result="${i}">✓ ยืนยันผล</button></div>`:""; const chat=canReport&&!m.isBye?`<div class="match-chat"><b>💬 แชทเฉพาะคู่แข่งขัน</b><div class="chat-messages" id="${chatId}-messages"></div><div class="chat-input-row"><input id="${chatId}-input" maxlength="300" placeholder="คุยกับคู่แข่ง"><button id="${chatId}-send">ส่ง</button></div></div>`:""; const pending=m.pendingWinnerId?`รายงาน: ${escapeHtml(room.players[m.pendingWinnerId]?.name||"")} ชนะ (${m.pendingScore||"-"}) — แก้ไขได้ 10 วินาที` : "รอรายงานผล";return `<div class="match-card"><div class="match-players"><span>${escapeHtml(a)}</span><span class="vs">VS</span><span>${escapeHtml(b)}</span></div><p class="small-text">${m.isBye?"ชนะบาย":m.winnerId?`ผู้ชนะ: ${escapeHtml(room.players[m.winnerId]?.name||"")} (${m.score||"-"})`:pending}</p>${controls}${teamPreviewHtml(room.players[m.player1Id],`match-${i}-a`)}${m.player2Id?teamPreviewHtml(room.players[m.player2Id],`match-${i}-b`):""}${chat}</div>`}).join("");
   pairs.querySelectorAll("button[data-save-result]").forEach(button=>button.addEventListener("click",()=>{const matchIndex=+button.dataset.saveResult,match=current.matches[matchIndex],score=pairs.querySelector(`[data-score-match="${matchIndex}"]`)?.value;const winner=String(score).startsWith("2")||score==="1-0"?match.player1Id:match.player2Id;tournamentAction("result",{round:t.history.length-1,match:matchIndex,winner,score});}));
   current?.matches.forEach((match, index) => {
     const card = pairs.querySelectorAll(".match-card")[index];
@@ -780,7 +797,7 @@ document.getElementById("btn-start").addEventListener("click", async () => {
   const btn = document.getElementById("btn-start");
   const current = (await get(ref(db, "rooms/" + currentRoomId))).val();
   if (!current) return;
-  const missingTeamSheets = competitivePlayerIds(current).filter(pid => !hasSubmittedTeamSheet(current.players?.[pid]));
+  const missingTeamSheets = current.settings?.mode === "auction" ? [] : competitivePlayerIds(current).filter(pid => !hasSubmittedTeamSheet(current.players?.[pid]));
   if (missingTeamSheets.length) {
     alert(`ยังเริ่มไม่ได้: รอ Team Sheet จากผู้เล่นอีก ${missingTeamSheets.length} คน`);
     renderLobby(current);
@@ -812,7 +829,7 @@ document.getElementById("btn-start").addEventListener("click", async () => {
 
     await runTransaction(ref(db, "rooms/" + currentRoomId), latest => {
       if (!latest || latest.status !== "waiting") return latest;
-      if (competitivePlayerIds(latest).some(pid => !hasSubmittedTeamSheet(latest.players?.[pid]))) return latest;
+      if (latest.settings?.mode !== "auction" && competitivePlayerIds(latest).some(pid => !hasSubmittedTeamSheet(latest.players?.[pid]))) return latest;
       latest.status = "picking";
       latest.pool = pool;
       latest.turnOrder = playerIds;
