@@ -25,6 +25,7 @@
 .tournament-meta,.checkin-box { padding:12px; border-radius:10px; margin:12px 0; background:rgba(255,255,255,.08); }
 .tournament-actions { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0; }
 .match-card .report-controls { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+.score-entry { align-items:end; padding:10px; border-radius:10px; background:rgba(88,182,255,.10); }.score-entry label { display:grid; gap:4px; color:var(--muted); font-size:.82rem; }.score-entry select { width:auto; min-width:112px; margin:0; padding:9px; }
 .checkin-box button { margin-left:8px; }
 .team-editor,.meta-analytics { margin:16px 0; padding:13px; border-radius:10px; background:rgba(255,255,255,.07); }
 .team-editor summary { cursor:pointer; font-weight:bold; }
