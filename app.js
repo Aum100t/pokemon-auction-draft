@@ -120,6 +120,7 @@ document.getElementById("btn-create").addEventListener("click", async () => {
   const hostParticipation = document.getElementById("create-host-participation").value;
   const maxPlayers = parseInt(document.getElementById("create-max-players").value);
   const mode = document.getElementById("create-room-mode").value;
+  const teamSize = mode === "auction" ? parseInt(document.getElementById("create-auction-team-size").value) : 6;
   const auctionSelector = document.getElementById("create-auction-selector").value;
   const phases = [document.getElementById("create-phase-1").value, document.getElementById("create-phase-2").value].filter(Boolean);
   const bestOf = document.getElementById("create-best-of").value;
@@ -143,7 +144,7 @@ document.getElementById("btn-create").addEventListener("click", async () => {
       startMoney: 10000,
       minBidIncrement: 50,
       timerSeconds: 10,
-      teamSize: 10
+      teamSize
     },
     players: {
       [playerId]: {
@@ -167,6 +168,20 @@ document.getElementById("btn-create").addEventListener("click", async () => {
   onDisconnect(ref(db, `rooms/${roomId}/players/${playerId}`)).remove();
   enterLobby(roomId, playerId, true);
 });
+
+// แสดงเฉพาะการตั้งค่าที่เกี่ยวข้องกับโหมดและรูปแบบการแข่งขันที่เลือก
+function syncCreateRoomOptions() {
+  const mode = document.getElementById("create-room-mode").value;
+  const phase1 = document.getElementById("create-phase-1").value;
+  const phase2 = document.getElementById("create-phase-2").value;
+  document.getElementById("create-auction-settings").classList.toggle("hidden", mode !== "auction");
+  document.getElementById("create-swiss-rounds-wrap").classList.toggle("hidden", phase1 !== "swiss" && phase2 !== "swiss");
+  document.getElementById("create-top-cut-wrap").classList.toggle("hidden", !phase2);
+}
+["create-room-mode", "create-phase-1", "create-phase-2"].forEach(id => {
+  document.getElementById(id).addEventListener("change", syncCreateRoomOptions);
+});
+syncCreateRoomOptions();
 
 // ---------- Join Room ----------
 document.getElementById("btn-join").addEventListener("click", async () => {
@@ -391,7 +406,17 @@ function initialTournament(room) {
 }
 function tournamentStats(room) {
   const stats = Object.fromEntries(competitivePlayerIds(room).map(pid => [pid,{pid,name:room.players[pid].name,wins:0,losses:0,points:0,played:0}]));
-  (room.tournament?.history||[]).forEach(round => round.matches.forEach(m => { if (!m.winnerId || m.isBye) return; const loser=m.winnerId===m.player1Id?m.player2Id:m.player1Id; if(stats[m.winnerId]) {stats[m.winnerId].wins++;stats[m.winnerId].points+=3;stats[m.winnerId].played++;} if(stats[loser]) {stats[loser].losses++;stats[loser].played++;} }));
+  (room.tournament?.history||[]).forEach(round => round.matches.forEach(m => {
+    if (!m.winnerId) return;
+    // Round Robin ให้ BYE เป็นเพียงการพักรอบ จึงไม่นับสถิติหรือแต้ม
+    if (m.isBye) {
+      if (round.format !== "roundRobin" && stats[m.winnerId]) { stats[m.winnerId].wins++; stats[m.winnerId].points += 3; stats[m.winnerId].played++; }
+      return;
+    }
+    const loser=m.winnerId===m.player1Id?m.player2Id:m.player1Id;
+    if(stats[m.winnerId]) {stats[m.winnerId].wins++;stats[m.winnerId].points+=3;stats[m.winnerId].played++;}
+    if(stats[loser]) {stats[loser].losses++;stats[loser].played++;}
+  }));
   return Object.values(stats).sort((a,b)=>b.points-a.points||b.wins-a.wins||a.name.localeCompare(b.name));
 }
 function shouldCheckIn(room) {
@@ -489,8 +514,9 @@ function parseTeamSheetProfile(text) {
     const speciesMatches = [...namePart.matchAll(/\(([^)]+)\)/g)].map(match => match[1]).filter(value => !/^[MF]$/i.test(value));
     const pokemon = (speciesMatches[0] || namePart.replace(/\s+\([MF]\)$/, "")).trim();
     const nature = lines.find(line => /\sNature$/i.test(line))?.replace(/\sNature$/i, "").trim() || "";
+    const ability = lines.find(line => /^Ability:\s*/i.test(line))?.replace(/^Ability:\s*/i, "").trim() || "";
     const moves = lines.filter(line => /^-\s+/.test(line)).map(line => line.replace(/^-\s+/, "").trim());
-    return { pokemon, moves, item: itemPart.trim(), nature };
+    return { pokemon, moves, item: itemPart.trim(), nature, ability };
   }).filter(member => member.pokemon).slice(0, 6);
 }
 function tournamentTeamOf(player) {
@@ -606,6 +632,9 @@ function renderTournament(room) {
   document.getElementById("tournament-room-code").textContent=currentRoomId;
   document.getElementById("tournament-meta").textContent=`เฟส ${t.phaseIndex+1}/${room.settings.phases.length}: ${tournamentLabel(phase)} • ${room.settings.bestOf} • ผู้เล่นสมัคร ${competitivePlayerIds(room).length}/${room.settings.maxPlayers}`;
   document.getElementById("tournament-date").textContent=`เริ่มการแข่งขัน: ${formatTournamentDate(room.createdAt)}${room.completedAt?` • จบ: ${formatTournamentDate(room.completedAt)}`:""}`;
+  const archiveSave = document.getElementById("completed-archive-save");
+  archiveSave?.classList.toggle("hidden", room.status !== "completed" || !isHost || !!room.archiveId);
+  document.getElementById("btn-save-completed-archive").onclick = saveCompletedTournamentArchive;
   if(room.status === "tournament") mountAdminChat(room);
   syncAdminCallDrawer(room);
   const editor=document.getElementById("team-profile-input"); editor?.closest(".team-editor")?.classList.add("hidden");
@@ -613,7 +642,7 @@ function renderTournament(room) {
   const pairs=document.getElementById("tournament-pairings");
   if(t.championId) pairs.innerHTML=`<div class="match-card"><h3>👑 แชมป์: ${escapeHtml(room.players[t.championId]?.name||"-")}</h3></div>`;
   else if(!current) { pairs.innerHTML=`<p class="small-text">กำลังสร้างคู่แข่งขันรอบแรก...</p>`; ensureFirstTournamentRound(); }
-  else pairs.innerHTML=`<h3>รอบ ${current.round} — ${tournamentLabel(current.format)}</h3>`+current.matches.map((m,i)=>{const a=room.players[m.player1Id]?.name||"-",b=m.player2Id?room.players[m.player2Id]?.name:"BYE",canReport=isHost||currentPlayerId===m.player1Id||currentPlayerId===m.player2Id,chatId=`match-chat-${t.history.length-1}-${i}`; const scoreOptions=room.settings.bestOf==="BO3"?'<option value="2-0">2 – 0</option><option value="2-1">2 – 1</option><option value="1-2">1 – 2</option><option value="0-2">0 – 2</option>':'<option value="1-0">1 – 0</option><option value="0-1">0 – 1</option>'; const controls=canReport&&!m.isBye&&!m.winnerId?`<div class="report-controls score-entry"><div class="score-entry-title"><span>🏁 บันทึกผลการแข่งขัน</span><small>สกอร์เรียง: ${escapeHtml(a)} – ${escapeHtml(b)}</small></div><label><span>เลือกสกอร์</span><select data-score-match="${i}">${scoreOptions}</select></label><button data-save-result="${i}">✓ ยืนยันผล</button></div>`:""; const chat=canReport&&!m.isBye?`<div class="match-chat"><b>💬 แชทเฉพาะคู่แข่งขัน</b><div class="chat-messages" id="${chatId}-messages"></div><div class="chat-input-row"><input id="${chatId}-input" maxlength="300" placeholder="คุยกับคู่แข่ง"><button id="${chatId}-send">ส่ง</button></div></div>`:""; const pending=m.pendingWinnerId?`รายงาน: ${escapeHtml(room.players[m.pendingWinnerId]?.name||"")} ชนะ (${m.pendingScore||"-"}) — แก้ไขได้ 10 วินาที` : "รอรายงานผล";return `<div class="match-card"><div class="match-players"><span>${escapeHtml(a)}</span><span class="vs">VS</span><span>${escapeHtml(b)}</span></div><p class="small-text">${m.isBye?"ชนะบาย":m.winnerId?`ผู้ชนะ: ${escapeHtml(room.players[m.winnerId]?.name||"")} (${m.score||"-"})`:pending}</p>${controls}${teamPreviewHtml(room.players[m.player1Id],`match-${i}-a`)}${m.player2Id?teamPreviewHtml(room.players[m.player2Id],`match-${i}-b`):""}${chat}</div>`}).join("");
+  else pairs.innerHTML=`<h3>รอบ ${current.round} — ${tournamentLabel(current.format)}</h3>`+current.matches.map((m,i)=>{const a=room.players[m.player1Id]?.name||"-",b=m.player2Id?room.players[m.player2Id]?.name:"BYE",canReport=isHost||currentPlayerId===m.player1Id||currentPlayerId===m.player2Id,chatId=`match-chat-${t.history.length-1}-${i}`; const scoreOptions=room.settings.bestOf==="BO3"?'<option value="2-0">2 – 0</option><option value="2-1">2 – 1</option><option value="1-2">1 – 2</option><option value="0-2">0 – 2</option>':'<option value="1-0">1 – 0</option><option value="0-1">0 – 1</option>'; const controls=canReport&&!m.isBye&&!m.winnerId?`<div class="report-controls score-entry"><div class="score-entry-title"><span>🏁 บันทึกผลการแข่งขัน</span><small>สกอร์เรียง: ${escapeHtml(a)} – ${escapeHtml(b)}</small></div><label><span>เลือกสกอร์</span><select data-score-match="${i}">${scoreOptions}</select></label><button data-save-result="${i}">✓ ยืนยันผล</button></div>`:""; const chat=canReport&&!m.isBye?`<div class="match-chat"><b>💬 แชทเฉพาะคู่แข่งขัน</b><div class="chat-messages" id="${chatId}-messages"></div><div class="chat-input-row"><input id="${chatId}-input" maxlength="300" placeholder="คุยกับคู่แข่ง"><button id="${chatId}-send">ส่ง</button></div></div>`:""; const pending=m.pendingWinnerId?`รายงาน: ${escapeHtml(room.players[m.pendingWinnerId]?.name||"")} ชนะ (${m.pendingScore||"-"}) — แก้ไขได้ 10 วินาที` : "รอรายงานผล"; const byeText=current.format==="roundRobin"?"พักรอบนี้ (ไม่คิดแต้ม)":"ชนะบาย (+3 แต้ม)";return `<div class="match-card"><div class="match-players"><span>${escapeHtml(a)}</span><span class="vs">VS</span><span>${escapeHtml(b)}</span></div><p class="small-text">${m.isBye?byeText:m.winnerId?`ผู้ชนะ: ${escapeHtml(room.players[m.winnerId]?.name||"")} (${m.score||"-"})`:pending}</p>${controls}${teamPreviewHtml(room.players[m.player1Id],`match-${i}-a`)}${m.player2Id?teamPreviewHtml(room.players[m.player2Id],`match-${i}-b`):""}${chat}</div>`}).join("");
   pairs.querySelectorAll("button[data-save-result]").forEach(button=>button.addEventListener("click",()=>{const matchIndex=+button.dataset.saveResult,match=current.matches[matchIndex],score=pairs.querySelector(`[data-score-match="${matchIndex}"]`)?.value;const winner=String(score).startsWith("2")||score==="1-0"?match.player1Id:match.player2Id;tournamentAction("result",{round:t.history.length-1,match:matchIndex,winner,score});}));
   current?.matches.forEach((match, index) => {
     const card = pairs.querySelectorAll(".match-card")[index];
@@ -650,9 +679,10 @@ function renderTournamentAuctionTeams(room) {
   tabs?.classList.toggle("hidden", !isAuction);
   if (!isAuction || !summary) return;
   const players = competitivePlayerIds(room);
-  summary.innerHTML = `<div class="auction-summary-heading"><div><h3>🎒 ทีมจากการประมูล</h3><p class="small-text">โปเกม่อนที่ผู้เล่นแต่ละคนได้จากการประมูล — เรียง 5 ตัวต่อแถว</p></div></div><div class="auction-team-grid">${players.map(pid => {
+  const perRow = (room.settings.teamSize || 10) === 6 ? 3 : 5;
+  summary.innerHTML = `<div class="auction-summary-heading"><div><h3>🎒 ทีมจากการประมูล</h3><p class="small-text">โปเกม่อนที่ผู้เล่นแต่ละคนได้จากการประมูล — เรียง ${perRow} ตัวต่อแถว</p></div></div><div class="auction-team-grid">${players.map(pid => {
     const player = room.players[pid], team = player.team || [];
-    return `<article class="auction-team-card"><header><div><b>${escapeHtml(player.name)}</b>${pid === room.hostId ? ' <span class="badge">HOST</span>' : ''}</div><span>${team.length}/${room.settings.teamSize || 10} ตัว</span></header><div class="auction-team-roster">${team.map(member => `<div class="auction-team-mon"><img src="${member.sprite}" alt=""><b>${escapeHtml(member.displayName)}</b>${member.isMega ? '<small>🌟 MEGA</small>' : ''}${member.price ? `<small>💰 ${Number(member.price).toLocaleString()}</small>` : (member.viaTicket ? '<small>🎫 ตั๋ว</small>' : (member.viaRandom ? '<small>🎲 สุ่ม</small>' : (member.viaGift ? '<small>🎁 ของขวัญ</small>' : '')))}</div>`).join("") || '<p class="small-text">ยังไม่มีโปเกม่อน</p>'}</div></article>`;
+    return `<article class="auction-team-card"><header><div><b>${escapeHtml(player.name)}</b>${pid === room.hostId ? ' <span class="badge">HOST</span>' : ''}</div><span>${team.length}/${room.settings.teamSize || 10} ตัว</span></header><div class="auction-team-roster team-size-${room.settings.teamSize || 10}">${team.map(member => `<div class="auction-team-mon"><img src="${member.sprite}" alt=""><b>${escapeHtml(member.displayName)}</b>${member.isMega ? '<small>🌟 MEGA</small>' : ''}${member.price ? `<small>💰 ${Number(member.price).toLocaleString()}</small>` : (member.viaTicket ? '<small>🎫 ตั๋ว</small>' : (member.viaRandom ? '<small>🎲 สุ่ม</small>' : (member.viaGift ? '<small>🎁 ของขวัญ</small>' : '')))}</div>`).join("") || '<p class="small-text">ยังไม่มีโปเกม่อน</p>'}</div></article>`;
   }).join("")}</div>`;
   const showView = view => {
     currentTournamentView = view;
@@ -1855,6 +1885,9 @@ async function saveOrUpdateArchive() {
       players: room.players || {},
       hostId: room.hostId || null,
       league: room.league || null,
+      // เก็บ bracket จริงของการแข่งขันไว้กับ archive เพื่อให้ย้อนดูผลได้
+      // แม้ห้องต้นทางจะถูกล้างแชทหรือเริ่มรายการใหม่ภายหลังแล้ว
+      tournament: room.tournament || null,
       bannedList: getBannedList(room),
       hasBanInfo: true
     };
@@ -2017,23 +2050,7 @@ function renderArchiveDetail(archive) {
 
   const players = archive.players || {};
   const grid = document.getElementById("adet-teams-grid");
-  grid.innerHTML = Object.entries(players).map(([pid, p]) => `
-    <div class="team-summary-card">
-      <h4>${escapeHtml(p.name)}${pid === archive.hostId ? ' <span class="badge">HOST</span>' : ''}</h4>
-      <p class="small-text">เงินคงเหลือ: ${(p.money || 0).toLocaleString()}</p>
-      <div class="my-team">
-        ${(p.team || []).map((t, idx) => teamSlotHtml(t, editing ? { pid, idx } : null)).join("")}
-      </div>
-      ${editing ? `
-        <div class="add-poke-row">
-          <select data-add-select="${escapeHtml(pid)}">
-            <option value="">— เลือกโปเกม่อนที่จะเพิ่ม —</option>
-            ${POKEMON_LIST.map((pk, i) => `<option value="${i}">${escapeHtml(pk.displayName)}</option>`).join("")}
-          </select>
-          <button data-add-pid="${escapeHtml(pid)}">➕ เพิ่ม</button>
-        </div>` : ""}
-    </div>
-  `).join("") || `<p class="archives-empty">ไม่มีข้อมูลทีม</p>`;
+  grid.innerHTML = Object.entries(players).filter(([, p]) => !p.isSpectator).map(([pid, p]) => archiveTeamSheetHtml(p, pid, archive, editing)).join("") || `<p class="archives-empty">ไม่มีข้อมูล Team Sheet</p>`;
 
   if (editing) {
     grid.querySelectorAll("[data-remove-pid]").forEach(btn => {
@@ -2054,8 +2071,11 @@ function renderArchiveDetail(archive) {
 
   const league = archive.league;
   const leagueSection = document.getElementById("adet-league-section");
-  if (!league || !league.weeks || !league.weeks.length) {
-    leagueSection.innerHTML = `<p class="archives-empty">ทัวร์นาเมนต์นี้ไม่มีตารางแข่งขัน</p>`;
+  const tournamentHistory = archive.tournament?.history || [];
+  if (tournamentHistory.length) {
+    renderArchiveMatchHistory(archive);
+  } else if (!league || !league.weeks || !league.weeks.length) {
+    leagueSection.innerHTML = `<p class="archives-empty">ทัวร์นาเมนต์นี้ยังไม่มีประวัติการต่อสู้</p>`;
   } else {
     leagueSection.innerHTML = `
       <div class="week-tabs" id="adet-week-tabs"></div>
@@ -2579,4 +2599,86 @@ function startOwnTournamentNotifications() {
       });
     });
   });
+}
+
+async function saveCompletedTournamentArchive() {
+  const room = latestRoom;
+  if (!room || !isHost || room.status !== "completed" || !currentRoomId) return;
+  const input = document.getElementById("completed-archive-name");
+  const button = document.getElementById("btn-save-completed-archive");
+  const name = input.value.trim() || `ทัวร์นาเมนต์ ${currentRoomId}`;
+  button.disabled = true;
+  try {
+    const archiveId = push(ref(db, "archives")).key;
+    const createdAt = Date.now();
+    await set(ref(db, `archives/${archiveId}`), {
+      name, roomId:currentRoomId, creatorUid:room.creatorUid || null, creatorEmail:room.creatorEmail || null,
+      affiliation:room.affiliation || null, hostName:room.players?.[room.hostId]?.name || "-",
+      playerCount:competitivePlayerIds(room).length, createdAt, updatedAt:createdAt, settings:room.settings || null,
+      players:room.players || {}, hostId:room.hostId || null, league:room.league || null,
+      tournament:room.tournament || null, bannedList:getBannedList(room), hasBanInfo:true
+    });
+    await update(ref(db, `rooms/${currentRoomId}`), { archiveId, archiveName:name, archiveCreatedAt:createdAt });
+  } catch (error) {
+    console.error("save completed archive error:", error);
+    alert("บันทึกทัวร์นาเมนต์ไม่สำเร็จ กรุณาลองใหม่");
+  } finally { button.disabled = false; }
+}
+
+function teamSheetSprite(name) {
+  const slug = String(name || "").toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return `https://play.pokemonshowdown.com/sprites/ani/${slug}.gif`;
+}
+function archiveTeamSheetHtml(player, pid, archive, editing) {
+  const team = profileOf(player);
+  const isAuctionTeam = Array.isArray(player.team) && player.team.length;
+  const source = isAuctionTeam ? "ทีมจากการประมูล" : "Team Sheet";
+  const roster = isAuctionTeam
+    ? `<div class="auction-sheet-roster team-size-${archive.settings?.teamSize || 10}">${player.team.map((member, index) => `<div class="auction-sheet-member"><img src="${member.sprite || teamSheetSprite(member.displayName)}" alt="${escapeHtml(member.displayName)}"><b>${escapeHtml(member.displayName)}</b><small>#${index + 1}${member.price ? ` • 💰${Number(member.price).toLocaleString()}` : ""}</small></div>`).join("")}</div>`
+    : `<div class="sheet-pokemon-grid">${team.map((mon, index) => `<section class="sheet-pokemon-card">
+      <div class="sheet-pokemon-name"><b>${escapeHtml(mon.pokemon)}</b><span>#${index + 1}</span></div>
+      <div class="sheet-pokemon-main"><img src="${teamSheetSprite(mon.pokemon)}" alt="${escapeHtml(mon.pokemon)}" onerror="this.style.visibility='hidden'"><div class="sheet-moves">${(mon.moves || []).map(move => `<div>${escapeHtml(move)}</div>`).join("") || '<div class="small-text">ไม่มีข้อมูลท่า</div>'}</div></div>
+      <div class="sheet-details"><span>Ability</span><b>${escapeHtml(mon.ability || "-")}</b><span>Nature</span><b>${escapeHtml(mon.nature || "-")}</b><span>Held Item</span><b>${escapeHtml(mon.item || "-")}</b></div>
+    </section>`).join("") || '<p class="archives-empty">ยังไม่ได้ส่ง Team Sheet</p>'}</div>`;
+  return `<article class="archive-team-sheet">
+    <header><div><h3>${escapeHtml(player.name || "ผู้เล่น")}${pid === archive.hostId ? ' <span class="badge">HOST</span>' : ''}</h3><p>${source} • ${team.length || 0}/${isAuctionTeam ? (archive.settings?.teamSize || 10) : 6} ตัว</p></div></header>
+    ${roster}
+    ${editing ? `<div class="add-poke-row"><select data-add-select="${escapeHtml(pid)}"><option value="">— เลือกโปเกม่อนที่จะเพิ่ม —</option>${POKEMON_LIST.map((pk, i) => `<option value="${i}">${escapeHtml(pk.displayName)}</option>`).join("")}</select><button data-add-pid="${escapeHtml(pid)}">➕ เพิ่ม</button></div>` : ""}
+  </article>`;
+}
+
+function renderArchiveMatchHistory(archive) {
+  const history = archive.tournament?.history || [];
+  const section = document.getElementById("adet-league-section");
+  const stats = Object.fromEntries(Object.entries(archive.players || {}).filter(([, p]) => !p.isSpectator).map(([pid, p]) => [pid, { name:p.name, wins:0, losses:0, played:0, points:0 }]));
+  history.forEach(round => (round.matches || []).forEach(match => {
+    if (!match.winnerId || !stats[match.winnerId]) return;
+    if (match.isBye) {
+      if (round.format !== "roundRobin") { stats[match.winnerId].wins++; stats[match.winnerId].played++; stats[match.winnerId].points += 3; }
+      return;
+    }
+    const loser = match.winnerId === match.player1Id ? match.player2Id : match.player1Id;
+    stats[match.winnerId].wins++; stats[match.winnerId].played++; stats[match.winnerId].points += 3;
+    if (stats[loser]) { stats[loser].losses++; stats[loser].played++; }
+  }));
+  const labels = history.map((round, index) => round.format ? `${tournamentLabel(round.format)} • รอบ ${round.round || index + 1}` : `รอบ ${index + 1}`);
+  const renderRound = roundIndex => {
+    const round = history[roundIndex];
+    if (!round) return "";
+    return `<section class="history-round"><h3>${escapeHtml(labels[roundIndex])}</h3>${(round.matches || []).map(match => {
+      const p1 = archive.players?.[match.player1Id], p2 = archive.players?.[match.player2Id];
+      if (match.isBye) return `<div class="history-match bye-card"><b>${escapeHtml(p1?.name || "?")}</b><span class="badge">${round.format === "roundRobin" ? "พักรอบนี้ • 0 แต้ม" : "BYE • ชนะ +3"}</span></div>`;
+      const p1Won = match.winnerId === match.player1Id, p2Won = match.winnerId === match.player2Id;
+      return `<div class="history-match"><span class="${p1Won ? "winner-name" : ""}">${escapeHtml(p1?.name || "?")}</span><b class="history-score">${escapeHtml(match.score || "VS")}</b><span class="${p2Won ? "winner-name" : ""}">${escapeHtml(p2?.name || "?")}</span><small>${match.winnerId ? `ชนะ: ${escapeHtml(archive.players?.[match.winnerId]?.name || "?")}` : "ยังไม่ได้แข่ง"}</small></div>`;
+    }).join("")}</section>`;
+  };
+  section.innerHTML = `<div id="adet-match-history" class="archive-match-history"><div class="week-tabs history-round-tabs">${labels.map((label, index) => `<button class="week-tab-btn ${index === 0 ? "active" : ""}" data-history-round="${index}">${escapeHtml(label)}</button>`).join("")}</div><div id="adet-history-round-content">${renderRound(0)}</div></div><h3 style="margin:20px 0 10px;">📊 ตารางคะแนน</h3><table class="standings-table" id="adet-standings-table"></table>`;
+  section.querySelectorAll("[data-history-round]").forEach(button => button.addEventListener("click", () => {
+    const roundIndex = Number(button.dataset.historyRound);
+    section.querySelectorAll("[data-history-round]").forEach(tab => tab.classList.toggle("active", tab === button));
+    section.querySelector("#adet-history-round-content").innerHTML = renderRound(roundIndex);
+  }));
+  const standings = Object.values(stats).sort((a,b) => b.points-a.points || b.wins-a.wins || a.name.localeCompare(b.name));
+  document.getElementById("adet-standings-table").innerHTML = `<tr><th>#</th><th>ผู้เล่น</th><th>แข่ง</th><th>ชนะ</th><th>แพ้</th><th>แต้ม</th></tr>${standings.map((s,i) => `<tr><td>${i+1}</td><td>${escapeHtml(s.name)}</td><td>${s.played}</td><td>${s.wins}</td><td>${s.losses}</td><td><b>${s.points}</b></td></tr>`).join("")}`;
 }
