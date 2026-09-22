@@ -435,6 +435,7 @@ function completeTournamentInTransaction(room, winnerId) {
   room.chat=null; room.matchChats=null; room.adminChat=null; room.adminCalls=null;
 }
 async function beginNextRound() {
+  let blockedReason = "";
   await updateRoom(room => {
     if(currentPlayerId !== room.hostId || room.status !== "tournament") return room;
     const t=room.tournament; if(t.phaseComplete) return room;
@@ -443,8 +444,13 @@ async function beginNextRound() {
     let ids=(t.phaseParticipants||activePlayerIds(room)).filter(pid=>!room.players[pid].withdrawn), stats=tournamentStats(room);
     if (t.started && t.history.length) {
       const previous=t.history[t.history.length-1];
-      previous.matches.forEach(m => { if(!m.winnerId && m.pendingWinnerId && Date.now()-m.reportedAt >= 10000) {m.winnerId=m.pendingWinnerId;m.score=m.pendingScore;} });
-      const incomplete=previous.matches.some(m=>!m.winnerId); if(incomplete) return room;
+      // รองรับ BYE จากห้องเวอร์ชันเก่า และยืนยันผลที่รายงานแล้วเมื่อโฮสต์เปิดรอบถัดไป
+      previous.matches.forEach(m => {
+        if (m.isBye && !m.winnerId) { m.winnerId = m.player1Id; m.score = "BYE"; }
+        if (!m.winnerId && m.pendingWinnerId) { m.winnerId=m.pendingWinnerId; m.score=m.pendingScore; m.pendingWinnerId=null; m.pendingScore=null; }
+      });
+      const incomplete=previous.matches.some(m=>!m.winnerId);
+      if(incomplete) { blockedReason = "ยังมีคู่แข่งขันที่ไม่ได้บันทึกผล"; return room; }
       if(format === "single") ids=previous.matches.filter(m=>m.winnerId).map(m=>m.winnerId);
       if(format === "double") { t.losses=t.losses||{}; previous.matches.forEach(m=>{if(!m.isBye&&m.winnerId){const loser=m.winnerId===m.player1Id?m.player2Id:m.player1Id;t.losses[loser]=(t.losses[loser]||0)+1;}}); ids=ids.filter(pid=>(t.losses[pid]||0)<2); }
       const rrRounds=format === "roundRobin" ? generateRoundRobinSchedule(ids).length : 0;
@@ -460,6 +466,7 @@ async function beginNextRound() {
     const matches = format === "roundRobin" ? generateRoundRobinSchedule(ids)[t.round % Math.max(1,ids.length-1)]?.matches || [] : makePairs(ids,stats);
     t.history.push({phaseIndex:t.phaseIndex,round:t.round+1,format,matches}); t.started=true; return room;
   });
+  if (blockedReason) alert(`${blockedReason} — กรุณาระบุผู้ชนะให้ครบก่อนเริ่มรอบต่อไป`);
 }
 async function advanceTournamentPhase() {
   await updateRoom(room => {
@@ -570,6 +577,12 @@ function currentMatchContext(room, playerId) {
 }
 function canManageRoom(room) {
   return !!room && !!currentUser && (isOwner || room.creatorUid === currentUser.uid || (isStaff && !!myAffiliation && room.affiliation === myAffiliation));
+}
+
+// ผลที่ยืนยันแล้วแก้ได้เฉพาะแอดมินหลัก หรือผู้จัดที่สร้างทัวร์นาเมนต์นี้
+// (ทีมงานสังกัดเดียวกันยังดูแลแชท/คำขอได้ แต่แก้ผลแข่งขันไม่ได้)
+function canEditConfirmedResults(room) {
+  return !!room && !!currentUser && (isOwner || room.creatorUid === currentUser.uid);
 }
 function closeAdminCallDrawer() { document.getElementById("admin-call-drawer")?.classList.add("hidden"); }
 function syncAdminCallDrawer(room, roomId = currentRoomId) {
@@ -2475,10 +2488,11 @@ function mountSpectateMatchChats(roomId, room) {
     if (match.isBye) return;
     const a = room.players?.[match.player1Id]?.name || "-", b = room.players?.[match.player2Id]?.name || "-";
     const id = `staff-match-${roundIndex}-${matchIndex}`;
-    const scoreOptions = room.settings?.bestOf === "BO3"
-      ? '<option value="2-0">2-0</option><option value="2-1">2-1</option><option value="1-2">1-2</option><option value="0-2">0-2</option>'
-      : '<option value="1-0">1-0</option><option value="0-1">0-1</option>';
-    const result = `<div class="admin-result-form"><span class="small-text">${match.winnerId ? `ผลปัจจุบัน: ${escapeHtml(room.players?.[match.winnerId]?.name || "-")} (${escapeHtml(match.score || "-")})` : "ยังไม่บันทึกผล"}</span><select id="${id}-winner"><option value="${match.player1Id}">${escapeHtml(a)} ชนะ</option><option value="${match.player2Id}">${escapeHtml(b)} ชนะ</option></select><select id="${id}-score">${scoreOptions}</select><button class="primary" data-admin-result-round="${roundIndex}" data-admin-result-match="${matchIndex}">💾 บันทึกผล</button></div>`;
+    const scoreValues = room.settings?.bestOf === "BO3" ? ["2-0", "2-1", "1-2", "0-2"] : ["1-0", "0-1"];
+    const scoreOptions = scoreValues.map(value => `<option value="${value}" ${match.score === value ? "selected" : ""}>${value}</option>`).join("");
+    const result = match.winnerId && canEditConfirmedResults(room)
+      ? `<div class="admin-result-form"><span class="small-text">ผลที่ยืนยันแล้ว: ${escapeHtml(room.players?.[match.winnerId]?.name || "-")} (${escapeHtml(match.score || "-")})</span><select id="${id}-winner"><option value="${match.player1Id}" ${match.winnerId === match.player1Id ? "selected" : ""}>${escapeHtml(a)} ชนะ</option><option value="${match.player2Id}" ${match.winnerId === match.player2Id ? "selected" : ""}>${escapeHtml(b)} ชนะ</option></select><select id="${id}-score">${scoreOptions}</select><button class="primary" data-admin-result-round="${roundIndex}" data-admin-result-match="${matchIndex}">✏️ แก้ไขผล</button></div>`
+      : `<p class="small-text">${match.winnerId ? `ผลที่ยืนยันแล้ว: ${escapeHtml(room.players?.[match.winnerId]?.name || "-")} (${escapeHtml(match.score || "-")})` : "ยังไม่ยืนยันผล"}</p>`;
     sections.push(`<div class="match-chat"><b>รอบ ${round.round || roundIndex + 1}: ${escapeHtml(a)} VS ${escapeHtml(b)}</b>${result}<div class="chat-messages" id="${id}"></div></div>`);
     subscriptions.push({ roundIndex, matchIndex, id, match });
   }));
@@ -2515,20 +2529,22 @@ function renderSpectateDraftTeams(room) {
 async function saveAdminMatchResult(roomId, roundIndex, matchIndex, winnerId, score) {
   const roomSnap = await get(ref(db, `rooms/${roomId}`));
   const room = roomSnap.val();
-  if (!room || !canManageRoom(room)) throw new Error("Not allowed");
+  if (!room || !canEditConfirmedResults(room)) throw new Error("Not allowed");
   const match = room.tournament?.history?.[roundIndex]?.matches?.[matchIndex];
   const validScore = room.settings?.bestOf === "BO3" ? /^(2-[01]|[01]-2)$/.test(score) : score === "1-0" || score === "0-1";
   const winnerMatchesScore = winnerId === match?.player1Id ? (score.startsWith("2") || score === "1-0") : (score.endsWith("2") || score === "0-1");
-  if (!match || match.isBye || !validScore || !winnerMatchesScore || ![match.player1Id, match.player2Id].includes(winnerId)) throw new Error("Invalid result");
+  if (!match?.winnerId || match.isBye || !validScore || !winnerMatchesScore || ![match.player1Id, match.player2Id].includes(winnerId)) throw new Error("Invalid result");
   await runTransaction(ref(db, `rooms/${roomId}/tournament`), tournament => {
     const currentMatch = tournament?.history?.[roundIndex]?.matches?.[matchIndex];
-    if (!currentMatch) return tournament;
+    if (!currentMatch?.winnerId) return tournament;
     currentMatch.winnerId = winnerId;
     currentMatch.score = score;
     currentMatch.pendingWinnerId = null;
     currentMatch.pendingScore = null;
     currentMatch.reportedAt = Date.now();
     currentMatch.reportedBy = `admin:${currentUser?.uid || "unknown"}`;
+    currentMatch.editedAt = Date.now();
+    currentMatch.editedBy = currentUser?.uid || "unknown";
     return tournament;
   });
 }
