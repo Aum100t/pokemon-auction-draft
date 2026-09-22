@@ -25,7 +25,7 @@
       <select id="create-host-participation"><option value="play">ร่วมเล่นเป็นผู้เล่น</option><option value="spectator">ผู้สังเกตการณ์เท่านั้น</option></select>
       <label class="field-label">โหมดห้อง</label>
       <select id="create-room-mode"><option value="auction">แบบประมูล (Auction)</option><option value="random">สุ่มทีม (Random Team)</option><option value="normal">แบบปกติ (Normal)</option></select>
-      <div class="format-row"><select id="create-team-size"><option value="6">ทีมละ 6 ตัว</option><option value="10" selected>ทีมละ 10 ตัว</option></select><select id="create-random-duplicates"><option value="unique">สุ่มไม่ซ้ำกันทั้งห้อง</option><option value="allow">สุ่มซ้ำกันได้</option></select></div><p class="small-text">ตัวเลือกจำนวนทีมและการซ้ำ ใช้กับโหมดสุ่มทีม; โหมดประมูลใช้จำนวนทีมที่เลือก</p>
+      <div class="format-row"><select id="create-team-size"><option value="6">ทีมละ 6 ตัว</option><option value="10" selected>ทีมละ 10 ตัว</option></select><select id="create-random-duplicates"><option value="unique">สุ่มไม่ซ้ำกันทั้งห้อง</option><option value="allow">สุ่มซ้ำกันได้</option></select></div><p class="small-text" id="create-teamsize-note">ขนาดทีม (6/10 ตัว) ใช้กับทุกโหมด; ตัวเลือกการสุ่มซ้ำ/ไม่ซ้ำใช้เฉพาะโหมดสุ่มทีมเท่านั้น</p>
       <label class="field-label">ลำดับผู้เลือกโปเกม่อนขึ้นประมูล</label>
       <select id="create-auction-selector"><option value="rotation">วนตามตาผู้เล่น (ปกติ)</option><option value="organizer">ผู้จัดเลือกขึ้นประมูลคนเดียว</option></select>
       <label class="field-label">รูปแบบการแข่งขัน (สูงสุด 2 เฟส)</label>
@@ -74,7 +74,7 @@
     <div id="tournament-meta" class="tournament-meta"></div>
     <p class="small-text" id="tournament-date"></p>
     <div id="tournament-checkin" class="checkin-box"></div>
-    <details class="team-editor"><summary>📝 บันทึกข้อมูลทีมของฉัน (สำหรับ Meta)</summary><p class="small-text">1 ตัวต่อ 1 บรรทัด: Pokémon | Move 1, Move 2 | Item | Nature</p><textarea id="team-profile-input" rows="7" placeholder="Incineroar | Fake Out, Parting Shot | Sitrus Berry | Careful"></textarea><button class="primary" id="btn-save-team-profile">บันทึกทีม</button></details>
+    <details class="team-editor"><summary>📝 บันทึกข้อมูลทีมของฉัน (สำหรับ Meta)</summary><p class="small-text" id="team-profile-hint">1 ตัวต่อ 1 บรรทัด: Pokémon | Move 1, Move 2 | Item | Nature</p><textarea id="team-profile-input" rows="7" placeholder="Incineroar | Fake Out, Parting Shot | Sitrus Berry | Careful"></textarea><button class="primary" id="btn-save-team-profile">บันทึกทีม</button></details>
     <div id="tournament-pairings"></div>
     <div class="admin-help"><button class="primary" id="btn-call-admin">🆘 เรียกแอดมิน</button><span id="admin-call-status" class="small-text"></span><details><summary>💬 แชทกับแอดมิน</summary><div class="chat-messages" id="admin-chat-messages"></div><div class="chat-input-row"><input id="admin-chat-input" maxlength="300" placeholder="ส่งข้อความถึงผู้จัด/ทีมงาน"><button id="btn-admin-chat-send">ส่ง</button></div></details></div>
     <div class="tournament-actions"><button class="primary hidden" id="btn-next-round">เริ่มรอบต่อไป</button><button class="primary hidden" id="btn-advance-phase">ปิดเฟสและคัด Top</button><button class="primary btn-danger" id="btn-withdraw">ถอนตัว</button><button class="primary hidden" id="btn-cancel-withdraw">ยกเลิกการถอนตัว</button><button class="primary hidden" id="btn-open-admin-calls">🆘 คำขอแอดมิน</button><button class="primary btn-danger hidden" id="btn-finish-tournament">จบทัวร์นาเมนต์และล้างแชท</button></div>

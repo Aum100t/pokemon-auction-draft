@@ -81,6 +81,23 @@ tabJoin.addEventListener("click", () => {
   homeError.textContent = "";
 });
 
+// ---------- ฟอร์มสร้างห้อง: ปรับตัวเลือกตามโหมดที่เลือก ----------
+function updateCreateRoomModeFields() {
+  const mode = document.getElementById("create-room-mode")?.value;
+  const dupSelect = document.getElementById("create-random-duplicates");
+  const note = document.getElementById("create-teamsize-note");
+  if (dupSelect) dupSelect.classList.toggle("force-hidden", mode !== "random");
+  if (note) {
+    note.textContent = mode === "random"
+      ? "ขนาดทีม (6/10 ตัว) และตัวเลือกการสุ่มซ้ำ/ไม่ซ้ำ ใช้กับโหมดสุ่มทีม"
+      : mode === "auction"
+        ? "ขนาดทีม (6/10 ตัว) กำหนดจำนวนที่แต่ละคนประมูลได้ (ไม่มีตัวเลือกสุ่มซ้ำในโหมดนี้)"
+        : "ขนาดทีม (6/10 ตัว) กำหนดจำนวนสูงสุดของทีมที่บันทึกในโหมดปกติ";
+  }
+}
+document.getElementById("create-room-mode")?.addEventListener("change", updateCreateRoomModeFields);
+updateCreateRoomModeFields();
+
 // ---------- สิทธิ์การใช้งาน (Permissions) ----------
 function canCreateRoom() {
   return isOwner || isOrganizer;
@@ -438,11 +455,11 @@ async function tournamentAction(action, payload={}) {
     return false;
   }
 }
-function parseTeamProfile(text) {
+function parseTeamProfile(text, maxSize = 6) {
   return String(text||"").split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => {
     const [pokemon="", moves="", item="", nature=""] = line.split("|").map(x=>x.trim());
     return { pokemon, moves:moves.split(",").map(x=>x.trim()).filter(Boolean), item, nature };
-  }).filter(p=>p.pokemon).slice(0, 6);
+  }).filter(p=>p.pokemon).slice(0, maxSize);
 }
 function tournamentTeamOf(player) {
   return Array.isArray(player?.tournamentTeam) ? player.tournamentTeam : [];
@@ -552,7 +569,10 @@ function renderTournament(room) {
   document.getElementById("tournament-date").textContent=`เริ่มการแข่งขัน: ${formatTournamentDate(room.createdAt)}${room.completedAt?` • จบ: ${formatTournamentDate(room.completedAt)}`:""}`;
   if(room.status === "tournament") mountAdminChat(room);
   syncAdminCallDrawer(room);
-  const editor=document.getElementById("team-profile-input"); editor.closest(".team-editor").classList.toggle("hidden",amSpectator); editor.value=tournamentTeamOf(room.players[currentPlayerId]).map(p=>`${p.pokemon} | ${(p.moves||[]).join(", ")} | ${p.item||""} | ${p.nature||""}`).join("\n"); document.getElementById("btn-save-team-profile").onclick=()=>update(ref(db,`rooms/${currentRoomId}/players/${currentPlayerId}`),{tournamentTeam:parseTeamProfile(editor.value)});
+  const teamProfileMax=room.settings.teamSize||6;
+  const editor=document.getElementById("team-profile-input"); editor.closest(".team-editor").classList.toggle("hidden",amSpectator); editor.value=tournamentTeamOf(room.players[currentPlayerId]).map(p=>`${p.pokemon} | ${(p.moves||[]).join(", ")} | ${p.item||""} | ${p.nature||""}`).join("\n");
+  const teamProfileHint=document.getElementById("team-profile-hint"); if(teamProfileHint) teamProfileHint.textContent=`1 ตัวต่อ 1 บรรทัด (สูงสุด ${teamProfileMax} ตัวตามขนาดทีมของห้อง): Pokémon | Move 1, Move 2 | Item | Nature`;
+  document.getElementById("btn-save-team-profile").onclick=()=>update(ref(db,`rooms/${currentRoomId}/players/${currentPlayerId}`),{tournamentTeam:parseTeamProfile(editor.value,teamProfileMax)});
   const check=document.getElementById("tournament-checkin"), need=shouldCheckIn(room)&&(!current||current.matches.every(m=>m.winnerId)); check.innerHTML=need?`เช็คอินสำหรับรอบถัดไป (${room.settings.checkIn}) ${amSpectator?"<span class=\"small-text\">ผู้สังเกตการณ์ไม่ต้องเช็คอิน</span>":"<button id=\"btn-checkin\">เช็คอิน</button>"}${t.checkinRequired?" <b>ผู้จัดยังเริ่มไม่ได้: รอผู้เล่นเช็คอิน</b>":""}`:""; document.getElementById("btn-checkin")?.addEventListener("click",()=>tournamentAction("checkin"));
   const pairs=document.getElementById("tournament-pairings");
   if(t.championId) pairs.innerHTML=`<div class="match-card"><h3>👑 แชมป์: ${escapeHtml(room.players[t.championId]?.name||"-")}</h3></div>`;
