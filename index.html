@@ -32,6 +32,10 @@
         </div>
         <label class="field-label">ลำดับผู้เลือกโปเกม่อนขึ้นประมูล</label>
         <select id="create-auction-selector"><option value="rotation">วนตามตาผู้เล่น (ปกติ)</option><option value="organizer">ผู้จัดเลือกขึ้นประมูลคนเดียว</option></select>
+        <label class="field-label">การเปิดเผยโปเกม่อน</label>
+        <select id="create-auction-reveal"><option value="visible">แสดงชื่อและรูปให้ทุกคนเห็น</option><option value="hidden">ซ่อนจนกว่าการประมูลจะจบ</option></select>
+        <label class="field-label">เวลาต่อการประมูล</label>
+        <select id="create-auction-timer"><option value="10" selected>10 วินาที</option><option value="20">20 วินาที</option><option value="30">30 วินาที</option><option value="60">60 วินาที</option><option value="0">ไม่จำกัดเวลา — ผู้เสนอปิดเอง</option></select>
       </div>
       <label class="field-label">รูปแบบการแข่งขัน (สูงสุด 2 เฟส)</label>
       <div class="format-row"><select id="create-phase-1"><option value="roundRobin" selected>Round Robin (มีตารางรายสัปดาห์)</option><option value="swiss">Swiss</option><option value="single">Single Elimination</option><option value="double">Double Elimination</option></select><select id="create-phase-2"><option value="">ไม่มีเฟส 2</option><option value="swiss">Swiss</option><option value="single">Single Elimination</option><option value="double">Double Elimination</option><option value="roundRobin">Round Robin</option></select></div>
@@ -151,6 +155,7 @@
       </div>
       <div class="bid-controls">
         <button class="btn-snipe" id="btn-snipe-current">🎫 ใช้ตั๋วเลือกแย่งตัวนี้</button>
+        <button class="primary hidden" id="btn-confirm-auction">✓ ยืนยันปิดการประมูล</button>
       </div>
     </div>
 

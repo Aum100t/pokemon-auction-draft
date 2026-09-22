@@ -122,6 +122,8 @@ document.getElementById("btn-create").addEventListener("click", async () => {
   const mode = document.getElementById("create-room-mode").value;
   const teamSize = mode === "auction" ? parseInt(document.getElementById("create-auction-team-size").value) : 6;
   const auctionSelector = document.getElementById("create-auction-selector").value;
+  const auctionReveal = document.getElementById("create-auction-reveal").value;
+  const timerSeconds = parseInt(document.getElementById("create-auction-timer").value);
   const phases = [document.getElementById("create-phase-1").value, document.getElementById("create-phase-2").value].filter(Boolean);
   const bestOf = document.getElementById("create-best-of").value;
   const checkIn = document.getElementById("create-checkin").value;
@@ -140,10 +142,10 @@ document.getElementById("btn-create").addEventListener("click", async () => {
     status: "waiting",
     settings: {
       maxPlayers: maxPlayers,
-      mode, auctionSelector, hostParticipation, phases, bestOf, checkIn, topCut, swissRounds,
+      mode, auctionSelector, auctionReveal, hostParticipation, phases, bestOf, checkIn, topCut, swissRounds,
       startMoney: 10000,
       minBidIncrement: 50,
-      timerSeconds: 10,
+      timerSeconds,
       teamSize
     },
     players: {
@@ -539,12 +541,8 @@ function profileOf(player) { return tournamentTeamOf(player); }
 function teamPreviewHtml(player, key) {
   const profile=profileOf(player); if(!profile.length) return `<p class="small-text">ยังไม่ได้บันทึกข้อมูลทีม</p>`;
   const source = Array.isArray(player?.team) && player.team.length ? "ทีมจากการประมูล" : "Team Sheet";
-  const liveCards = profile.map((p, index) => `<article class="live-sheet-card">
-    <header><b>${escapeHtml(p.pokemon)}</b><span>#${index + 1}</span></header>
-    <div class="live-sheet-main"><img src="${teamSheetSprite(p.pokemon)}" alt="${escapeHtml(p.pokemon)}" onerror="this.style.visibility='hidden'"><div class="live-sheet-moves">${(p.moves || []).map(move => `<div>${escapeHtml(move)}</div>`).join("") || '<div class="empty-moves">ไม่มีข้อมูลท่า</div>'}</div></div>
-    <footer><span>Ability <b>${escapeHtml(p.ability || "-")}</b></span><span>Nature <b>${escapeHtml(p.nature || "-")}</b></span><span>Held Item <b>${escapeHtml(p.item || "-")}</b></span></footer>
-  </article>`).join("");
-  return `<button class="team-toggle" data-team-toggle="${key}">👁️ ดูทีมของ ${escapeHtml(player?.name || "ผู้เล่น")}</button><div id="team-preview-${key}" class="team-preview live-team-preview hidden"><b class="team-preview-owner">${source} ของ ${escapeHtml(player?.name || "ผู้เล่น")}</b><div class="live-sheet-grid">${liveCards}</div></div>`;
+  const roster = profile.map((p, index) => `<div class="auction-sheet-member"><img src="${teamSheetSprite(p.pokemon)}" alt="${escapeHtml(p.pokemon)}" onerror="this.style.visibility='hidden'"><b>${escapeHtml(p.pokemon)}</b><small>#${index + 1}${p.item ? ` • ${escapeHtml(p.item)}` : ""}</small></div>`).join("");
+  return `<button class="team-toggle" data-team-toggle="${key}">👁️ ดูทีมของ ${escapeHtml(player?.name || "ผู้เล่น")}</button><div id="team-preview-${key}" class="team-preview live-team-preview hidden"><b class="team-preview-owner">${source} ของ ${escapeHtml(player?.name || "ผู้เล่น")}</b><div class="auction-sheet-roster">${roster}</div></div>`;
 }
 function bindTeamToggles(root) { root.querySelectorAll("button[data-team-toggle]").forEach(btn=>btn.addEventListener("click",()=>document.getElementById("team-preview-"+btn.dataset.teamToggle)?.classList.toggle("hidden"))); }
 function renderMetaAnalytics(room) {
@@ -1058,6 +1056,7 @@ async function nominatePokemon(poolKey) {
     if (organizerSelects ? currentPlayerId !== room.hostId : room.turnOrder[room.currentTurnIndex] !== currentPlayerId) return room;
     const poke = room.pool[poolKey];
     if (!poke || poke.status !== "available") return room;
+    const timerSeconds = Number(room.settings?.timerSeconds ?? 10);
     poke.status = "auctioning";
     room.auction = {
       poolKey,
@@ -1069,7 +1068,7 @@ async function nominatePokemon(poolKey) {
       currentBid: 0,
       currentBidderId: null,
       currentBidderName: null,
-      endTime: Date.now() + room.settings.timerSeconds * 1000
+      endTime: timerSeconds > 0 ? Date.now() + timerSeconds * 1000 : null
     };
     return room;
   });
@@ -1077,7 +1076,7 @@ async function nominatePokemon(poolKey) {
 
 async function placeBid(amount) {
   await updateRoom((room) => {
-    if (!room.auction || Date.now() >= room.auction.endTime) return room;
+    if (!room.auction || (room.auction.endTime && Date.now() >= room.auction.endTime)) return room;
     const player = room.players[currentPlayerId];
     if (!player) return room;
     if ((player.team?.length || 0) >= room.settings.teamSize) return room;
@@ -1086,7 +1085,8 @@ async function placeBid(amount) {
     room.auction.currentBid = amount;
     room.auction.currentBidderId = currentPlayerId;
     room.auction.currentBidderName = player.name;
-    room.auction.endTime = Date.now() + room.settings.timerSeconds * 1000;
+    const timerSeconds = Number(room.settings?.timerSeconds ?? 10);
+    if (timerSeconds > 0) room.auction.endTime = Date.now() + timerSeconds * 1000;
     return room;
   });
 }
@@ -1180,7 +1180,7 @@ async function sendGiftPokemon(memberIndex, targetPlayerId) {
 
 async function resolveAuctionIfExpired() {
   await updateRoom((room) => {
-    if (!room.auction || Date.now() < room.auction.endTime) return room;
+    if (!room.auction?.endTime || Date.now() < room.auction.endTime) return room;
     const auction = room.auction;
     const poke = room.pool[auction.poolKey];
 
@@ -1197,6 +1197,30 @@ async function resolveAuctionIfExpired() {
       poke.status = "discarded";
     }
 
+    room.auction = null;
+    advanceTurn(room);
+    checkGameEnd(room);
+    return room;
+  });
+}
+
+async function confirmAuction() {
+  await updateRoom((room) => {
+    if (!room.auction || room.auction.endTime || room.auction.nominatedBy !== currentPlayerId) return room;
+    const auction = room.auction;
+    const poke = room.pool?.[auction.poolKey];
+    if (!poke) return room;
+    if (auction.currentBidderId) {
+      const winner = room.players[auction.currentBidderId];
+      if (!winner) return room;
+      winner.money -= auction.currentBid;
+      if (!winner.team) winner.team = [];
+      winner.team.push({ id: poke.id, displayName: poke.displayName, isMega: poke.isMega, sprite: poke.sprite, price: auction.currentBid });
+      poke.status = "owned";
+      poke.ownerId = auction.currentBidderId;
+    } else {
+      poke.status = "discarded";
+    }
     room.auction = null;
     advanceTurn(room);
     checkGameEnd(room);
@@ -1250,7 +1274,7 @@ setInterval(() => {
 }, 1000);
 
 setInterval(() => {
-  if (!latestRoom || !latestRoom.auction) return;
+  if (!latestRoom?.auction?.endTime) return;
   const timerEl = document.getElementById("auc-timer");
   if (!timerEl) return;
   const remain = Math.max(0, Math.ceil((latestRoom.auction.endTime - Date.now()) / 1000));
@@ -1309,15 +1333,17 @@ function renderGame(room) {
   if (room.auction) {
     aucBox.classList.remove("hidden");
     const a = room.auction;
-    document.getElementById("auc-img").src = a.sprite;
-    document.getElementById("auc-name").innerHTML = a.displayName + (a.isMega ? '<span class="mega-tag">MEGA</span>' : '');
+    const revealAuctionPokemon = room.settings?.auctionReveal !== "hidden";
+    document.getElementById("auc-img").src = revealAuctionPokemon ? a.sprite : "";
+    document.getElementById("auc-img").alt = revealAuctionPokemon ? a.displayName : "โปเกม่อนลับ";
+    document.getElementById("auc-img").classList.toggle("auction-secret-image", !revealAuctionPokemon);
+    document.getElementById("auc-name").innerHTML = revealAuctionPokemon ? a.displayName + (a.isMega ? '<span class="mega-tag">MEGA</span>' : '') : "❓ โปเกม่อนลับ";
     document.getElementById("auc-nominator").textContent = `เสนอโดย: ${a.nominatedByName}`;
     document.getElementById("auc-bid").textContent = a.currentBidderId
       ? `บิดล่าสุด ${a.currentBid.toLocaleString()} โดย ${a.currentBidderName}`
-      : "ยังไม่มีการบิด (ถ้าหมดเวลาไม่มีคนบิด ตัวนี้จะตกไปกองขยะ)";
+      : (a.endTime ? "ยังไม่มีการบิด (หมดเวลาแล้วจะตกไปกองขยะ)" : "ยังไม่มีการบิด");
 
-    const remain = Math.max(0, Math.ceil((a.endTime - Date.now()) / 1000));
-    document.getElementById("auc-timer").textContent = remain;
+    document.getElementById("auc-timer").textContent = a.endTime ? Math.max(0, Math.ceil((a.endTime - Date.now()) / 1000)) : "∞";
 
     const increment = room.settings.minBidIncrement;
     const controlsDiv = document.getElementById("bid-controls");
@@ -1350,6 +1376,10 @@ function renderGame(room) {
     const canSnipe = !me.pickTicketUsed && !meFull && a.nominatedBy !== currentPlayerId;
     snipeBtn.classList.toggle("hidden", !canSnipe);
     snipeBtn.onclick = () => usePickTicket(a.poolKey);
+    const confirmBtn = document.getElementById("btn-confirm-auction");
+    const canConfirm = !a.endTime && a.nominatedBy === currentPlayerId;
+    confirmBtn.classList.toggle("hidden", !canConfirm);
+    confirmBtn.onclick = canConfirm ? confirmAuction : null;
   } else {
     aucBox.classList.add("hidden");
   }
@@ -1496,6 +1526,9 @@ function renderPool(room, isMyTurn, me) {
   grid.innerHTML = "";
   const meFull = (me.team?.length || 0) >= room.settings.teamSize;
 
+  const organizerSelects = room.settings?.auctionSelector === "organizer";
+  const canChoosePokemon = organizerSelects ? isHost : isMyTurn;
+  const hidePokemon = room.settings?.auctionReveal === "hidden";
   Object.values(room.pool).forEach(poke => {
     if (currentFilter === "normal" && poke.isMega) return;
     if (currentFilter === "mega" && !poke.isMega) return;
@@ -1503,7 +1536,10 @@ function renderPool(room, isMyTurn, me) {
 
     const card = document.createElement("div");
     card.className = `poke-card status-${poke.status}`;
-    let html = `<img src="${poke.sprite}" alt=""><div class="name">${poke.displayName}${poke.isMega ? '<br><span class="mega-tag">MEGA</span>' : ''}</div>`;
+    const conceal = hidePokemon && (poke.status === "auctioning" || (poke.status === "available" && !canChoosePokemon));
+    let html = conceal
+      ? '<div class="secret-pokemon">❓</div><div class="name">โปเกม่อนลับ</div>'
+      : `<img src="${poke.sprite}" alt=""><div class="name">${poke.displayName}${poke.isMega ? '<br><span class="mega-tag">MEGA</span>' : ''}</div>`;
 
     if (poke.status === "owned") {
       html += `<div class="owner-tag">👤 ${room.players[poke.ownerId]?.name || "?"}</div>`;
@@ -1513,7 +1549,7 @@ function renderPool(room, isMyTurn, me) {
       html += `<div class="owner-tag">🗑️ ตกไปแล้ว</div>`;
     } else {
       html += `<div class="card-actions">`;
-      const canNominate = room.settings?.auctionSelector === "organizer" ? isHost : isMyTurn;
+      const canNominate = canChoosePokemon;
       if (poke.status === "available" && !room.auction && canNominate) {
         html += `<button class="btn-nominate" data-action="nominate" data-id="${poke.id}">เสนอประมูล</button>`;
       }
@@ -2657,11 +2693,7 @@ function archiveTeamSheetHtml(player, pid, archive, editing) {
   const source = isAuctionTeam ? "ทีมจากการประมูล" : "Team Sheet";
   const roster = isAuctionTeam
     ? `<div class="auction-sheet-roster team-size-${archive.settings?.teamSize || 10}">${player.team.map((member, index) => `<div class="auction-sheet-member"><img src="${member.sprite || teamSheetSprite(member.displayName)}" alt="${escapeHtml(member.displayName)}"><b>${escapeHtml(member.displayName)}</b><small>#${index + 1}${member.price ? ` • 💰${Number(member.price).toLocaleString()}` : ""}</small></div>`).join("")}</div>`
-    : `<div class="sheet-pokemon-grid">${team.map((mon, index) => `<section class="sheet-pokemon-card">
-      <div class="sheet-pokemon-name"><b>${escapeHtml(mon.pokemon)}</b><span>#${index + 1}</span></div>
-      <div class="sheet-pokemon-main"><img src="${teamSheetSprite(mon.pokemon)}" alt="${escapeHtml(mon.pokemon)}" onerror="this.style.visibility='hidden'"><div class="sheet-moves">${(mon.moves || []).map(move => `<div>${escapeHtml(move)}</div>`).join("") || '<div class="small-text">ไม่มีข้อมูลท่า</div>'}</div></div>
-      <div class="sheet-details"><span>Ability</span><b>${escapeHtml(mon.ability || "-")}</b><span>Nature</span><b>${escapeHtml(mon.nature || "-")}</b><span>Held Item</span><b>${escapeHtml(mon.item || "-")}</b></div>
-    </section>`).join("") || '<p class="archives-empty">ยังไม่ได้ส่ง Team Sheet</p>'}</div>`;
+    : `<div class="auction-sheet-roster">${team.map((mon, index) => `<div class="auction-sheet-member"><img src="${teamSheetSprite(mon.pokemon)}" alt="${escapeHtml(mon.pokemon)}" onerror="this.style.visibility='hidden'"><b>${escapeHtml(mon.pokemon)}</b><small>#${index + 1}${mon.item ? ` • ${escapeHtml(mon.item)}` : ""}</small></div>`).join("") || '<p class="archives-empty">ยังไม่ได้ส่ง Team Sheet</p>'}</div>`;
   return `<article class="archive-team-sheet">
     <header><div><h3>${escapeHtml(player.name || "ผู้เล่น")}${pid === archive.hostId ? ' <span class="badge">HOST</span>' : ''}</h3><p>${source} • ${team.length || 0}/${isAuctionTeam ? (archive.settings?.teamSize || 10) : 6} ตัว</p></div></header>
     ${roster}
