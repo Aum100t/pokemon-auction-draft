@@ -123,6 +123,7 @@
       <div class="status-box"><div class="val" id="my-team-count">0/10</div><div class="lbl">โปเกม่อน</div></div>
       <div class="status-box"><div class="val" id="my-pick-status">🎫</div><div class="lbl">ตั๋วเลือก</div></div>
       <div class="status-box"><div class="val" id="my-ban-status">🚫</div><div class="lbl">ตั๋วแบน</div></div>
+      <div class="status-box"><div class="val" id="my-gift-status">🎁</div><div class="lbl">ตั๋วของขวัญ</div></div>
     </div>
 
     <div class="players-strip" id="players-strip"></div>
@@ -163,6 +164,16 @@
 
     <!-- ส่วนทีมของฉัน -->
     <div id="team-section" class="hidden">
+      <div class="gift-box" id="gift-box">
+        <h4>🎁 ตั๋วส่งของขวัญ</h4>
+        <p class="small-text">ส่งโปเกม่อนของคุณ 1 ตัวให้เพื่อนที่ช่องทีมยังไม่เต็มได้ฟรี ใช้ได้ครั้งเดียวต่อทัวร์นาเมนต์ และต้องส่งก่อนเริ่มประมูลตัวถัดไป (ระหว่างไม่มีการประมูลค้างอยู่เท่านั้น)</p>
+        <div class="gift-controls">
+          <select id="gift-pokemon-select"></select>
+          <select id="gift-target-select"></select>
+          <button class="primary" id="btn-send-gift">🎁 ส่งของขวัญ</button>
+        </div>
+        <p class="small-text" id="gift-status"></p>
+      </div>
       <h3 style="margin-bottom:14px;">🎒 ทีมของฉัน</h3>
       <div class="my-team" id="my-team-grid"></div>
     </div>

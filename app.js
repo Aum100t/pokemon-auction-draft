@@ -155,6 +155,7 @@ document.getElementById("btn-create").addEventListener("click", async () => {
         joinedAt: Date.now(),
         pickTicketUsed: false,
         banTicketUsed: false,
+        giftTicketUsed: false,
         team: []
       }
     },
@@ -202,6 +203,7 @@ document.getElementById("btn-join").addEventListener("click", async () => {
     joinedAt: Date.now(),
     pickTicketUsed: false,
     banTicketUsed: false,
+    giftTicketUsed: false,
     team: []
   });
 
@@ -495,7 +497,7 @@ function tournamentTeamOf(player) {
   if (Array.isArray(player?.team) && player.team.length) return player.team.map(member => ({
     pokemon: member.displayName || "Pokémon",
     moves: [],
-    item: member.price ? `ประมูล ${Number(member.price).toLocaleString()}` : (member.viaTicket ? "รับจากตั๋ว" : (member.viaRandom ? "สุ่มให้" : "")),
+    item: member.price ? `ประมูล ${Number(member.price).toLocaleString()}` : (member.viaTicket ? "รับจากตั๋ว" : (member.viaRandom ? "สุ่มให้" : (member.viaGift ? `ของขวัญจาก ${member.giftedFromName || "เพื่อน"}` : ""))),
     nature: ""
   }));
   return parseTeamSheetProfile(player?.teamSheet || player?.teamText);
@@ -650,7 +652,7 @@ function renderTournamentAuctionTeams(room) {
   const players = competitivePlayerIds(room);
   summary.innerHTML = `<div class="auction-summary-heading"><div><h3>🎒 ทีมจากการประมูล</h3><p class="small-text">โปเกม่อนที่ผู้เล่นแต่ละคนได้จากการประมูล — เรียง 5 ตัวต่อแถว</p></div></div><div class="auction-team-grid">${players.map(pid => {
     const player = room.players[pid], team = player.team || [];
-    return `<article class="auction-team-card"><header><div><b>${escapeHtml(player.name)}</b>${pid === room.hostId ? ' <span class="badge">HOST</span>' : ''}</div><span>${team.length}/${room.settings.teamSize || 10} ตัว</span></header><div class="auction-team-roster">${team.map(member => `<div class="auction-team-mon"><img src="${member.sprite}" alt=""><b>${escapeHtml(member.displayName)}</b>${member.isMega ? '<small>🌟 MEGA</small>' : ''}${member.price ? `<small>💰 ${Number(member.price).toLocaleString()}</small>` : (member.viaTicket ? '<small>🎫 ตั๋ว</small>' : (member.viaRandom ? '<small>🎲 สุ่ม</small>' : ''))}</div>`).join("") || '<p class="small-text">ยังไม่มีโปเกม่อน</p>'}</div></article>`;
+    return `<article class="auction-team-card"><header><div><b>${escapeHtml(player.name)}</b>${pid === room.hostId ? ' <span class="badge">HOST</span>' : ''}</div><span>${team.length}/${room.settings.teamSize || 10} ตัว</span></header><div class="auction-team-roster">${team.map(member => `<div class="auction-team-mon"><img src="${member.sprite}" alt=""><b>${escapeHtml(member.displayName)}</b>${member.isMega ? '<small>🌟 MEGA</small>' : ''}${member.price ? `<small>💰 ${Number(member.price).toLocaleString()}</small>` : (member.viaTicket ? '<small>🎫 ตั๋ว</small>' : (member.viaRandom ? '<small>🎲 สุ่ม</small>' : (member.viaGift ? '<small>🎁 ของขวัญ</small>' : '')))}</div>`).join("") || '<p class="small-text">ยังไม่มีโปเกม่อน</p>'}</div></article>`;
   }).join("")}</div>`;
   const showView = view => {
     currentTournamentView = view;
@@ -1081,6 +1083,53 @@ async function useBanTicket(poolKey) {
   });
 }
 
+// ตั๋วส่งของขวัญ: ส่งโปเกม่อนในทีมของตัวเอง 1 ตัว ให้เพื่อนที่ช่องทีมยังไม่เต็ม
+// ใช้ได้ครั้งเดียวต่อทัวร์นาเมนต์ และต้องส่งก่อนเริ่มประมูลรอบต่อไป (ระหว่างที่ไม่มีการประมูลค้างอยู่เท่านั้น)
+async function sendGiftPokemon(memberIndex, targetPlayerId) {
+  await updateRoom((room) => {
+    // ต้องอยู่ในช่วงเลือก/ประมูล และไม่มีการประมูลค้างอยู่ ณ ขณะนี้ (ถือว่าเป็น "ก่อนเริ่มประมูลรอบต่อไป")
+    if (room.status !== "picking" || room.auction) return room;
+    if (!targetPlayerId || targetPlayerId === currentPlayerId) return room;
+
+    const player = room.players[currentPlayerId];
+    if (!player || player.giftTicketUsed) return room;
+
+    const target = room.players[targetPlayerId];
+    if (!target) return room;
+
+    const teamSize = room.settings.teamSize;
+    if ((target.team?.length || 0) >= teamSize) return room;
+
+    const team = player.team || [];
+    const member = team[memberIndex];
+    if (!member) return room;
+
+    // เอาออกจากทีมผู้ส่ง
+    team.splice(memberIndex, 1);
+    player.team = team;
+
+    // เพิ่มเข้าทีมผู้รับ พร้อมระบุว่าได้มาจากของขวัญ (ล้างป้ายราคา/ตั๋ว/สุ่มเดิมออก)
+    if (!target.team) target.team = [];
+    target.team.push({
+      id: member.id,
+      displayName: member.displayName,
+      isMega: member.isMega,
+      sprite: member.sprite,
+      viaGift: true,
+      giftedFromName: player.name
+    });
+
+    // อัปเดตเจ้าของใน pool ให้ตรงกับทีมใหม่
+    if (member.id && room.pool && room.pool[member.id]) {
+      room.pool[member.id].ownerId = targetPlayerId;
+    }
+
+    player.giftTicketUsed = true;
+    checkGameEnd(room);
+    return room;
+  });
+}
+
 async function resolveAuctionIfExpired() {
   await updateRoom((room) => {
     if (!room.auction || Date.now() < room.auction.endTime) return room;
@@ -1130,6 +1179,7 @@ async function startNewSeason() {
       p.team = [];
       p.pickTicketUsed = false;
       p.banTicketUsed = false;
+      p.giftTicketUsed = false;
     });
     room.status = "waiting";
     room.pool = null;
@@ -1193,6 +1243,7 @@ function renderGame(room) {
   document.getElementById("team-tab-count").textContent = `${(me.team||[]).length}/${room.settings.teamSize}`;
   document.getElementById("my-pick-status").textContent = me.pickTicketUsed ? "❌" : "🎫";
   document.getElementById("my-ban-status").textContent = me.banTicketUsed ? "❌" : "🚫";
+  document.getElementById("my-gift-status").textContent = me.giftTicketUsed ? "❌" : "🎁";
 
   const strip = document.getElementById("players-strip");
   strip.innerHTML = room.turnOrder.map(pid => {
@@ -1258,6 +1309,60 @@ function renderGame(room) {
   renderPool(room, isMyTurn, me);
   renderMyTeam(me, room.settings.teamSize);
   renderOthersTeams(room);
+  renderGiftBox(room, me);
+}
+
+// กล่องส่งของขวัญ: เลือกโปเกม่อนในทีมตัวเอง + เพื่อนที่ช่องยังไม่เต็ม แล้วส่งได้ก่อนเริ่มประมูลตัวถัดไป
+function renderGiftBox(room, me) {
+  const box = document.getElementById("gift-box");
+  const pokeSelect = document.getElementById("gift-pokemon-select");
+  const targetSelect = document.getElementById("gift-target-select");
+  const sendBtn = document.getElementById("btn-send-gift");
+  const statusEl = document.getElementById("gift-status");
+  if (!box) return;
+
+  const teamSize = room.settings.teamSize;
+  const myTeam = me.team || [];
+  const targets = (room.turnOrder || [])
+    .filter(pid => pid !== currentPlayerId && room.players[pid])
+    .map(pid => ({ pid, p: room.players[pid] }))
+    .filter(({ p }) => (p.team?.length || 0) < teamSize);
+
+  const auctionOpen = !!room.auction;
+
+  if (me.giftTicketUsed) {
+    statusEl.textContent = "✅ คุณใช้ตั๋วส่งของขวัญไปแล้วในทัวร์นาเมนต์นี้";
+  } else if (!myTeam.length) {
+    statusEl.textContent = "คุณยังไม่มีโปเกม่อนในทีมให้ส่ง";
+  } else if (!targets.length) {
+    statusEl.textContent = "ตอนนี้ไม่มีเพื่อนที่ช่องทีมยังไม่เต็ม";
+  } else if (auctionOpen) {
+    statusEl.textContent = "⏳ กำลังมีการประมูลอยู่ ต้องรอให้จบก่อนถึงจะส่งของขวัญได้";
+  } else {
+    statusEl.textContent = "";
+  }
+
+  const disabled = me.giftTicketUsed || !myTeam.length || !targets.length || auctionOpen;
+  sendBtn.disabled = disabled;
+  pokeSelect.disabled = disabled;
+  targetSelect.disabled = disabled;
+
+  pokeSelect.innerHTML = myTeam
+    .map((t, i) => `<option value="${i}">${escapeHtml(t.displayName)}${t.isMega ? " 🌟" : ""}</option>`)
+    .join("") || '<option value="">-</option>';
+
+  targetSelect.innerHTML = targets
+    .map(({ pid, p }) => `<option value="${escapeHtml(pid)}">${escapeHtml(p.name)} (${(p.team?.length || 0)}/${teamSize})</option>`)
+    .join("") || '<option value="">-</option>';
+
+  sendBtn.onclick = () => {
+    const idx = parseInt(pokeSelect.value, 10);
+    const targetPid = targetSelect.value;
+    if (isNaN(idx) || !targetPid) return;
+    const mon = myTeam[idx];
+    if (!confirm(`ส่ง ${mon?.displayName || "โปเกม่อนตัวนี้"} ให้ ${room.players[targetPid]?.name || "เพื่อน"} ใช่หรือไม่? (ใช้ตั๋วของขวัญ 1 ครั้ง)`)) return;
+    sendGiftPokemon(idx, targetPid);
+  };
 }
 
 function escapeHtml(str) {
@@ -1270,11 +1375,12 @@ function teamSlotHtml(t, edit) {
   const tag = t.price
     ? `<span class="price-tag">💰${t.price.toLocaleString()}</span>`
     : (t.viaTicket ? '<span class="price-tag">🎫 ตั๋ว</span>'
-      : (t.viaRandom ? '<span class="price-tag">🎲 สุ่มให้</span>' : ''));
+      : (t.viaRandom ? '<span class="price-tag">🎲 สุ่มให้</span>'
+        : (t.viaGift ? `<span class="price-tag">🎁 ของขวัญจาก ${escapeHtml(t.giftedFromName || "เพื่อน")}</span>` : '')));
   const removeBtn = edit
     ? `<button class="slot-remove" title="เอาออกจากทีม" data-remove-pid="${escapeHtml(edit.pid)}" data-remove-idx="${edit.idx}">✕</button>`
     : '';
-  return `<div class="team-slot${edit ? ' editable' : ''}">
+  return `<div class="team-slot${edit ? ' editable' : ''}${t.viaGift ? ' gifted-slot' : ''}">
     ${removeBtn}
     <img src="${t.sprite}" alt="">
     <span>${escapeHtml(t.displayName)}${t.isMega ? ' 🌟' : ''}</span>
@@ -1455,7 +1561,7 @@ function renderTeamsSummary(room) {
           <div class="team-slot draft-pokemon-card">
             <img src="${t.sprite}" alt="">
             <span>${t.displayName}${t.isMega ? ' 🌟' : ''}</span>
-            ${t.price ? `<span class="price-tag">💰${t.price.toLocaleString()}</span>` : (t.viaTicket ? '<span class="price-tag">🎫 ตั๋ว</span>' : (t.viaRandom ? '<span class="price-tag">🎲 สุ่มให้</span>' : ''))}
+            ${t.price ? `<span class="price-tag">💰${t.price.toLocaleString()}</span>` : (t.viaTicket ? '<span class="price-tag">🎫 ตั๋ว</span>' : (t.viaRandom ? '<span class="price-tag">🎲 สุ่มให้</span>' : (t.viaGift ? '<span class="price-tag">🎁 ของขวัญ</span>' : '')))}
           </div>`).join("")}
       </div>
     </article>
@@ -2377,7 +2483,7 @@ function renderSpectateDraftTeams(room) {
   if (!grid) return;
   grid.innerHTML = Object.entries(room.players || {}).filter(([, player]) => !player.isSpectator).map(([playerId, player]) => {
     const team = player.team || [];
-    return `<article class="team-summary-card draft-team-card"><div class="draft-team-heading"><div><h4>${escapeHtml(player.name)}${playerId === room.hostId ? ' <span class="badge">HOST</span>' : ''}</h4><p class="small-text">ทีมจากการประมูล</p></div><div class="team-count-badge">${team.length}/${room.settings?.teamSize || 10}</div></div><div class="draft-team-meta"><span>💰 ${(player.money || 0).toLocaleString()}</span><span>🎒 ${team.length} ตัว</span></div><div class="draft-team-roster">${team.map(member => `<div class="team-slot draft-pokemon-card"><img src="${member.sprite}" alt=""><span>${escapeHtml(member.displayName)}${member.isMega ? ' 🌟' : ''}</span>${member.price ? `<span class="price-tag">💰${member.price.toLocaleString()}</span>` : (member.viaTicket ? '<span class="price-tag">🎫 ตั๋ว</span>' : (member.viaRandom ? '<span class="price-tag">🎲 สุ่มให้</span>' : ''))}</div>`).join("") || '<span class="small-text">ยังไม่มีโปเกม่อนจากการประมูล</span>'}</div></article>`;
+    return `<article class="team-summary-card draft-team-card"><div class="draft-team-heading"><div><h4>${escapeHtml(player.name)}${playerId === room.hostId ? ' <span class="badge">HOST</span>' : ''}</h4><p class="small-text">ทีมจากการประมูล</p></div><div class="team-count-badge">${team.length}/${room.settings?.teamSize || 10}</div></div><div class="draft-team-meta"><span>💰 ${(player.money || 0).toLocaleString()}</span><span>🎒 ${team.length} ตัว</span></div><div class="draft-team-roster">${team.map(member => `<div class="team-slot draft-pokemon-card"><img src="${member.sprite}" alt=""><span>${escapeHtml(member.displayName)}${member.isMega ? ' 🌟' : ''}</span>${member.price ? `<span class="price-tag">💰${member.price.toLocaleString()}</span>` : (member.viaTicket ? '<span class="price-tag">🎫 ตั๋ว</span>' : (member.viaRandom ? '<span class="price-tag">🎲 สุ่มให้</span>' : (member.viaGift ? '<span class="price-tag">🎁 ของขวัญ</span>' : '')))}</div>`).join("") || '<span class="small-text">ยังไม่มีโปเกม่อนจากการประมูล</span>'}</div></article>`;
   }).join("") || '<p class="small-text">ยังไม่มีผู้เล่นในห้อง</p>';
 }
 
