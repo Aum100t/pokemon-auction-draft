@@ -1514,7 +1514,7 @@ async function leaveRoom({ confirmFirst = true } = {}) {
   location.reload();
 }
 
-["btn-leave-room", "btn-leave-lobby", "btn-leave-game"].forEach(id => {
+["btn-leave-room", "btn-leave-lobby", "btn-leave-game", "btn-leave-tournament"].forEach(id => {
   const el = document.getElementById(id);
   if (el) el.addEventListener("click", () => leaveRoom());
 });
