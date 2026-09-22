@@ -532,7 +532,12 @@ function profileOf(player) { return tournamentTeamOf(player); }
 function teamPreviewHtml(player, key) {
   const profile=profileOf(player); if(!profile.length) return `<p class="small-text">ยังไม่ได้บันทึกข้อมูลทีม</p>`;
   const source = Array.isArray(player?.team) && player.team.length ? "ทีมจากการประมูล" : "Team Sheet";
-  return `<button class="team-toggle" data-team-toggle="${key}">👁️ ดูทีมของ ${escapeHtml(player?.name || "ผู้เล่น")}</button><div id="team-preview-${key}" class="team-preview hidden"><b class="team-preview-owner">${source} ของ ${escapeHtml(player?.name || "ผู้เล่น")}</b>${profile.map(p=>`<div><b>${escapeHtml(p.pokemon)}</b>${p.item?` — ${escapeHtml(p.item)}`:""}${p.nature?` (${escapeHtml(p.nature)})`:""}${p.moves?.length?`<br><span class="small-text">${p.moves.map(escapeHtml).join(" · ")}</span>`:""}</div>`).join("")}</div>`;
+  const liveCards = profile.map((p, index) => `<article class="live-sheet-card">
+    <header><b>${escapeHtml(p.pokemon)}</b><span>#${index + 1}</span></header>
+    <div class="live-sheet-main"><img src="${teamSheetSprite(p.pokemon)}" alt="${escapeHtml(p.pokemon)}" onerror="this.style.visibility='hidden'"><div class="live-sheet-moves">${(p.moves || []).map(move => `<div>${escapeHtml(move)}</div>`).join("") || '<div class="empty-moves">ไม่มีข้อมูลท่า</div>'}</div></div>
+    <footer><span>Ability <b>${escapeHtml(p.ability || "-")}</b></span><span>Nature <b>${escapeHtml(p.nature || "-")}</b></span><span>Held Item <b>${escapeHtml(p.item || "-")}</b></span></footer>
+  </article>`).join("");
+  return `<button class="team-toggle" data-team-toggle="${key}">👁️ ดูทีมของ ${escapeHtml(player?.name || "ผู้เล่น")}</button><div id="team-preview-${key}" class="team-preview live-team-preview hidden"><b class="team-preview-owner">${source} ของ ${escapeHtml(player?.name || "ผู้เล่น")}</b><div class="live-sheet-grid">${liveCards}</div></div>`;
 }
 function bindTeamToggles(root) { root.querySelectorAll("button[data-team-toggle]").forEach(btn=>btn.addEventListener("click",()=>document.getElementById("team-preview-"+btn.dataset.teamToggle)?.classList.toggle("hidden"))); }
 function renderMetaAnalytics(room) {
