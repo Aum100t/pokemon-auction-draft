@@ -28,6 +28,9 @@
         },
         "adminChat": {
           ".write": "auth != null && auth.token.email_verified === true && (auth.token.email === 'chanatun73344@gmail.com' || root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() === 'owner' || data.parent().child('creatorUid').val() === auth.uid || (root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() === 'staff' && root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('affiliation').val() === data.parent().child('affiliation').val()))"
+        },
+        "tournament": {
+          ".write": "auth != null && auth.token.email_verified === true && (auth.token.email === 'chanatun73344@gmail.com' || root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() === 'owner' || data.parent().child('creatorUid').val() === auth.uid || (root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() === 'staff' && root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('affiliation').val() === data.parent().child('affiliation').val()))"
         }
       }
     },
