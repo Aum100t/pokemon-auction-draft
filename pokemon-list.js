@@ -166,6 +166,7 @@ export const POKEMON_LIST = [
   { id: 161, apiName: "pelipper", displayName: "Pelipper", isMega: false },
   { id: 162, apiName: "perrserker", displayName: "Perrserker", isMega: false },
   { id: 163, apiName: "persian", displayName: "Persian", isMega: false },
+  { id: 402, apiName: "persian-alola", displayName: "Persian Alolan Form", isMega: false },
   { id: 164, apiName: "pidgeot", displayName: "Pidgeot", isMega: false },
   { id: 165, apiName: "pikachu", displayName: "Pikachu", isMega: false },
   { id: 166, apiName: "pincurchin", displayName: "Pincurchin", isMega: false },
