@@ -24,24 +24,15 @@
       <label class="field-label">บทบาทของผู้สร้างห้อง</label>
       <select id="create-host-participation"><option value="play">ร่วมเล่นเป็นผู้เล่น</option><option value="spectator">ผู้สังเกตการณ์เท่านั้น</option></select>
       <label class="field-label">โหมดห้อง</label>
-      <select id="create-room-mode"><option value="auction">แบบประมูล (Auction)</option><option value="normal">แบบปกติ (Normal)</option></select>
-      <div id="create-auction-settings">
-        <div id="create-auction-team-size-wrap">
-          <label class="field-label">จำนวนโปเกมอนต่อทีมสำหรับการประมูล</label>
-          <select id="create-auction-team-size"><option value="6">6 ตัว</option><option value="10" selected>10 ตัว</option></select>
-        </div>
-        <label class="field-label">ลำดับผู้เลือกโปเกม่อนขึ้นประมูล</label>
-        <select id="create-auction-selector"><option value="rotation">วนตามตาผู้เล่น (ปกติ)</option><option value="organizer">ผู้จัดเลือกขึ้นประมูลคนเดียว</option></select>
-        <label class="field-label">การเปิดเผยโปเกม่อน</label>
-        <select id="create-auction-reveal"><option value="visible">แสดงชื่อและรูปให้ทุกคนเห็น</option><option value="hidden">ซ่อนจนกว่าการประมูลจะจบ</option></select>
-        <label class="field-label">เวลาต่อการประมูล</label>
-        <select id="create-auction-timer"><option value="10" selected>10 วินาที</option><option value="20">20 วินาที</option><option value="30">30 วินาที</option><option value="60">60 วินาที</option><option value="0">ไม่จำกัดเวลา — ผู้เสนอปิดเอง</option></select>
-      </div>
+      <select id="create-room-mode"><option value="auction">แบบประมูล (Auction)</option><option value="random">สุ่มทีม (Random Team)</option><option value="normal">แบบปกติ (Normal)</option></select>
+      <div class="format-row"><select id="create-team-size"><option value="6">ทีมละ 6 ตัว</option><option value="10" selected>ทีมละ 10 ตัว</option></select><select id="create-random-duplicates"><option value="unique">สุ่มไม่ซ้ำกันทั้งห้อง</option><option value="allow">สุ่มซ้ำกันได้</option></select></div><p class="small-text">ตัวเลือกจำนวนทีมและการซ้ำ ใช้กับโหมดสุ่มทีม; โหมดประมูลใช้จำนวนทีมที่เลือก</p>
+      <label class="field-label">ลำดับผู้เลือกโปเกม่อนขึ้นประมูล</label>
+      <select id="create-auction-selector"><option value="rotation">วนตามตาผู้เล่น (ปกติ)</option><option value="organizer">ผู้จัดเลือกขึ้นประมูลคนเดียว</option></select>
       <label class="field-label">รูปแบบการแข่งขัน (สูงสุด 2 เฟส)</label>
-      <div class="format-row"><select id="create-phase-1"><option value="roundRobin" selected>Round Robin (มีตารางรายสัปดาห์)</option><option value="swiss">Swiss</option><option value="single">Single Elimination</option><option value="double">Double Elimination</option></select><select id="create-phase-2"><option value="">ไม่มีเฟส 2</option><option value="swiss">Swiss</option><option value="single">Single Elimination</option><option value="double">Double Elimination</option><option value="roundRobin">Round Robin</option></select></div>
-      <div class="format-row"><select id="create-best-of"><option value="BO1">BO1</option><option value="BO3">BO3</option></select><select id="create-checkin"><option value="none">ไม่ต้องเช็คอิน</option><option value="everyRound">เช็คอินทุกรอบ</option><option value="once">เช็คอินรอบเดียว</option><option value="perPhase">เช็คอิน 1 รอบต่อเฟส</option></select></div>
-      <div id="create-swiss-rounds-wrap"><label class="field-label">จำนวนรอบ Swiss</label><select id="create-swiss-rounds"><option value="3">Swiss 3 รอบ</option><option value="4">Swiss 4 รอบ</option><option value="5">Swiss 5 รอบ</option><option value="6">Swiss 6 รอบ</option><option value="7">Swiss 7 รอบ</option></select></div>
-      <div id="create-top-cut-wrap"><label class="field-label">จำนวนผู้ผ่านเข้ารอบเฟส 2</label><select id="create-top-cut"><option value="0">ไม่กำหนด Top cut</option><option value="2">คัด Top 2 เข้าเฟสถัดไป</option><option value="4">คัด Top 4 เข้าเฟสถัดไป</option><option value="8">คัด Top 8 เข้าเฟสถัดไป</option><option value="16">คัด Top 16 เข้าเฟสถัดไป</option><option value="32">คัด Top 32 เข้าเฟสถัดไป</option></select></div>
+      <div class="format-row"><select id="create-phase-1"><option value="swiss">Swiss</option><option value="single">Single Elimination</option><option value="double">Double Elimination</option><option value="roundRobin">Round Robin</option></select><select id="create-phase-2"><option value="">ไม่มีเฟส 2</option><option value="swiss">Swiss</option><option value="single">Single Elimination</option><option value="double">Double Elimination</option><option value="roundRobin">Round Robin</option></select></div>
+      <div class="format-row"><select id="create-best-of"><option value="BO1">BO1</option><option value="BO3">BO3</option></select><select id="create-checkin"><option value="everyRound">เช็คอินทุกรอบ</option><option value="once">เช็คอินรอบเดียว</option><option value="perPhase">เช็คอิน 1 รอบต่อเฟส</option></select></div>
+      <select id="create-swiss-rounds"><option value="3">Swiss 3 รอบ</option><option value="4">Swiss 4 รอบ</option><option value="5">Swiss 5 รอบ</option><option value="6">Swiss 6 รอบ</option><option value="7">Swiss 7 รอบ</option></select>
+      <select id="create-top-cut"><option value="0">ไม่กำหนด Top cut</option><option value="2">คัด Top 2 เข้าเฟสถัดไป</option><option value="4">คัด Top 4 เข้าเฟสถัดไป</option><option value="8">คัด Top 8 เข้าเฟสถัดไป</option><option value="16">คัด Top 16 เข้าเฟสถัดไป</option><option value="32">คัด Top 32 เข้าเฟสถัดไป</option></select>
       <select id="create-max-players">
         <option value="2">2 คน</option>
         <option value="4" selected>4 คน</option>
@@ -83,18 +74,12 @@
     <div id="tournament-meta" class="tournament-meta"></div>
     <p class="small-text" id="tournament-date"></p>
     <div id="tournament-checkin" class="checkin-box"></div>
-    <details class="team-editor"><summary>📝 บันทึกทีมที่ใช้แข่งในทัวร์นาเมนต์นี้</summary><p class="small-text">ทีมนี้เท่านั้นที่จะถูกนำไปคำนวณ Meta — ข้อมูลทีมจากช่วงประมูลจะไม่ถูกใช้</p><p class="small-text">1 ตัวต่อ 1 บรรทัด: Pokémon | Move 1, Move 2 | Item | Nature</p><textarea id="team-profile-input" rows="7" placeholder="Incineroar | Fake Out, Parting Shot | Sitrus Berry | Careful"></textarea><button class="primary" id="btn-save-team-profile">บันทึกทีมที่ใช้แข่ง</button></details>
-    <div class="section-tabs hidden" id="tournament-auction-tabs"><button class="section-tab-btn active" id="tournament-tab-matches">⚔️ การแข่งขัน</button><button class="section-tab-btn" id="tournament-tab-draft">🎒 ทีมจากการประมูล</button></div>
+    <details class="team-editor"><summary>📝 บันทึกข้อมูลทีมของฉัน (สำหรับ Meta)</summary><p class="small-text">1 ตัวต่อ 1 บรรทัด: Pokémon | Move 1, Move 2 | Item | Nature</p><textarea id="team-profile-input" rows="7" placeholder="Incineroar | Fake Out, Parting Shot | Sitrus Berry | Careful"></textarea><button class="primary" id="btn-save-team-profile">บันทึกทีม</button></details>
     <div id="tournament-pairings"></div>
-    <section id="completed-archive-save" class="archive-save-box hidden">
-      <p class="small-text">บันทึกรายการนี้เพื่อให้ดู Team Sheet และประวัติการต่อสู้ย้อนหลังได้</p>
-      <div class="archive-save-controls"><input id="completed-archive-name" maxlength="40" placeholder="ชื่อทัวร์นาเมนต์"><button class="primary" id="btn-save-completed-archive">💾 บันทึกทัวร์นาเมนต์</button></div>
-    </section>
-    <section id="tournament-weekly-schedule" class="tournament-weekly-schedule"></section>
-    <section id="tournament-draft-summary" class="auction-draft-summary hidden"></section>
     <div class="admin-help"><button class="primary" id="btn-call-admin">🆘 เรียกแอดมิน</button><span id="admin-call-status" class="small-text"></span><details><summary>💬 แชทกับแอดมิน</summary><div class="chat-messages" id="admin-chat-messages"></div><div class="chat-input-row"><input id="admin-chat-input" maxlength="300" placeholder="ส่งข้อความถึงผู้จัด/ทีมงาน"><button id="btn-admin-chat-send">ส่ง</button></div></details></div>
-    <div class="tournament-actions"><button class="primary hidden" id="btn-next-round">เริ่มรอบต่อไป</button><button class="primary hidden" id="btn-advance-phase">ปิดเฟสและคัด Top</button><button class="primary btn-danger" id="btn-withdraw">ถอนตัวจากการแข่งขัน</button><button class="btn-leave-small" id="btn-leave-tournament">🚪 ออกจากห้อง</button><button class="primary hidden" id="btn-cancel-withdraw">ยกเลิกการถอนตัว</button><button class="primary hidden" id="btn-open-admin-calls">🆘 คำขอแอดมิน</button><button class="primary btn-danger hidden" id="btn-finish-tournament">จบทัวร์นาเมนต์และล้างแชท</button></div>
+    <div class="tournament-actions"><button class="primary hidden" id="btn-next-round">เริ่มรอบต่อไป</button><button class="primary hidden" id="btn-advance-phase">ปิดเฟสและคัด Top</button><button class="primary btn-danger" id="btn-withdraw">ถอนตัว</button><button class="primary hidden" id="btn-cancel-withdraw">ยกเลิกการถอนตัว</button><button class="primary hidden" id="btn-open-admin-calls">🆘 คำขอแอดมิน</button><button class="primary btn-danger hidden" id="btn-finish-tournament">จบทัวร์นาเมนต์และล้างแชท</button></div>
     <h3>📊 อันดับปัจจุบัน</h3><table class="standings-table" id="tournament-standings"></table>
+    <section id="meta-analytics" class="meta-analytics hidden"><h3>📈 Meta Analytics</h3><p class="small-text">แสดงเฉพาะห้องแบบปกติ และรายละเอียดทีมจะไม่ถูกเปิดอัตโนมัติ</p><div id="meta-content"></div></section>
   </div>
 
   <!-- แผงด้านข้าง: เห็นเฉพาะเจ้าของ/ผู้จัด/ทีมงานที่ดูแลทัวร์นี้ -->
@@ -109,13 +94,12 @@
     <p class="small-text">แชร์รหัสห้องนี้ให้เพื่อน</p>
     <div class="room-code" id="lobby-room-code">------</div>
     <p class="small-text" id="lobby-count">ผู้เล่น 0/0</p>
-    <div class="team-sheet-progress" id="lobby-team-sheet-count"></div>
     <ul class="player-list" id="lobby-player-list"></ul>
     <section class="team-editor hidden" id="lobby-team-editor">
-      <h3>📝 ส่ง Team Sheet ก่อนเริ่มการแข่งขัน</h3>
-      <p class="small-text">ผู้เล่นทุกคนต้องส่งก่อนผู้จัดเริ่มได้ ใช้ได้ทุกโหมด วางโค้ดทีมจาก Pokémon Showdown ได้เลย ระบบจะไม่นำบรรทัด EVs ไปแสดง และใช้ข้อมูลนี้คำนวณ Meta</p>
+      <h3>📝 โค้ดทีม</h3>
+      <p class="small-text">ใช้กับห้องแบบปกติเท่านั้น แก้ไขได้จนกว่าผู้จัดจะเริ่มเกม ระบบจะสร้าง Team Sheet โดยตัดเฉพาะบรรทัด EVs ออก</p>
       <textarea id="lobby-team-input" rows="14" placeholder="วางโค้ดทีมจาก Pokémon Showdown ที่นี่"></textarea>
-      <button class="primary" id="btn-save-lobby-team">ส่ง Team Sheet</button>
+      <button class="primary" id="btn-save-lobby-team">บันทึก Team Sheet</button>
       <pre class="team-sheet-preview hidden" id="lobby-team-preview"></pre>
     </section>
     <button class="primary" id="btn-start" disabled>รอผู้เล่น... (อย่างน้อย 2 คน)</button>
@@ -137,7 +121,6 @@
       <div class="status-box"><div class="val" id="my-team-count">0/10</div><div class="lbl">โปเกม่อน</div></div>
       <div class="status-box"><div class="val" id="my-pick-status">🎫</div><div class="lbl">ตั๋วเลือก</div></div>
       <div class="status-box"><div class="val" id="my-ban-status">🚫</div><div class="lbl">ตั๋วแบน</div></div>
-      <div class="status-box"><div class="val" id="my-gift-status">🎁</div><div class="lbl">ตั๋วของขวัญ</div></div>
     </div>
 
     <div class="players-strip" id="players-strip"></div>
@@ -151,11 +134,10 @@
       <div class="bid-controls" id="bid-controls"></div>
       <div class="bid-controls">
         <input type="number" id="custom-bid-input" placeholder="ระบุจำนวนเงิน">
-        <button class="btn-custom-bid" id="btn-custom-bid">⚡ บิด</button>
+        <button id="btn-custom-bid">บิด</button>
       </div>
       <div class="bid-controls">
         <button class="btn-snipe" id="btn-snipe-current">🎫 ใช้ตั๋วเลือกแย่งตัวนี้</button>
-        <button class="primary hidden" id="btn-confirm-auction">✓ ยืนยันปิดการประมูล</button>
       </div>
     </div>
 
@@ -179,17 +161,7 @@
 
     <!-- ส่วนทีมของฉัน -->
     <div id="team-section" class="hidden">
-      <div class="gift-box" id="gift-box">
-        <h4>🎁 ตั๋วส่งของขวัญ</h4>
-        <p class="small-text">ส่งโปเกม่อนของคุณ 1 ตัวให้เพื่อนที่ช่องทีมยังไม่เต็มได้ฟรี ใช้ได้ครั้งเดียวต่อทัวร์นาเมนต์ และต้องส่งก่อนเริ่มประมูลตัวถัดไป (ระหว่างไม่มีการประมูลค้างอยู่เท่านั้น)</p>
-        <div class="gift-controls">
-          <select id="gift-pokemon-select"></select>
-          <select id="gift-target-select"></select>
-          <button class="primary" id="btn-send-gift">🎁 ส่งของขวัญ</button>
-        </div>
-        <p class="small-text" id="gift-status"></p>
-      </div>
-      <h3 style="margin-bottom:14px;">🎒 ทีมของฉัน</h3>
+      <div class="team-section-heading"><h3>🎒 ทีมของฉัน</h3><div id="my-team-value" class="team-value">มูลค่าทีม: 💰0</div></div>
       <div class="my-team" id="my-team-grid"></div>
     </div>
 
@@ -303,8 +275,8 @@
     </div>
 
     <div class="section-tabs">
-      <button class="section-tab-btn active" id="adet-tab-teams">📋 Team Sheet</button>
-      <button class="section-tab-btn" id="adet-tab-league">⚔️ ประวัติการต่อสู้</button>
+      <button class="section-tab-btn active" id="adet-tab-teams">📋 สรุปทีม</button>
+      <button class="section-tab-btn" id="adet-tab-league">⚔️ ตารางแข่งขัน</button>
     </div>
 
     <div id="adet-teams-section">
@@ -312,7 +284,8 @@
       <div id="adet-banned-summary"></div>
     </div>
     <div id="adet-league-section" class="hidden">
-      <div id="adet-match-history"></div>
+      <div class="week-tabs" id="adet-week-tabs"></div>
+      <div id="adet-week-matches"></div>
       <h3 style="margin:20px 0 10px;">📊 ตารางคะแนน</h3>
       <table class="standings-table" id="adet-standings-table"></table>
     </div>
@@ -325,15 +298,6 @@
       <button class="btn-leave-small" id="btn-spectate-back">⬅ ปิด</button>
     </div>
     <div class="players-strip" id="spectate-players-strip"></div>
-    <section class="match-card">
-      <h3 style="margin-top:0;">📊 ตารางคะแนนสด</h3>
-      <table class="standings-table" id="spectate-standings-table"></table>
-    </section>
-    <div class="section-tabs">
-      <button class="section-tab-btn active" id="spectate-tab-matches">⚔️ ตารางการแข่งขัน</button>
-      <button class="section-tab-btn" id="spectate-tab-teams">🎒 ทีมจากการประมูล</button>
-    </div>
-    <div id="spectate-matches-section">
     <div id="spectate-admin-calls" class="admin-help"></div>
     <div class="chat-box">
       <h3 style="margin-bottom:10px;">💬 แชททีมงาน</h3>
@@ -344,13 +308,8 @@
       </div>
     </div>
     <div class="chat-box">
-      <h3 style="margin-bottom:10px;">📝 กรอกผลและดูแชทแต่ละคู่แข่งขัน</h3>
+      <h3 style="margin-bottom:10px;">💬 แชทแต่ละคู่แข่งขัน</h3>
       <div id="spectate-match-chats" class="match-chat-list"></div>
-    </div>
-    </div>
-    <div id="spectate-teams-section" class="hidden">
-      <p class="small-text">แสดงโปเกม่อนที่ผู้เล่นประมูลหรือได้รับระหว่างดราฟต์</p>
-      <div class="teams-summary-grid" id="spectate-draft-teams"></div>
     </div>
   </div>
 </div>
