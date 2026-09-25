@@ -550,9 +550,21 @@ function tournamentTeamOf(player) {
 function profileOf(player) { return tournamentTeamOf(player); }
 function teamPreviewHtml(player, key) {
   const profile=profileOf(player); if(!profile.length) return `<p class="small-text">ยังไม่ได้บันทึกข้อมูลทีม</p>`;
-  const source = Array.isArray(player?.team) && player.team.length ? "ทีมจากการประมูล" : "Team Sheet";
-  const roster = profile.map((p, index) => `<div class="auction-sheet-member"><img src="${p.sprite || teamSheetSprite(p.pokemon)}"${p.sprite ? "" : ` data-poke-name="${escapeHtml(p.pokemon)}"`} alt="${escapeHtml(p.pokemon)}" onerror="this.style.visibility='hidden'"><b>${escapeHtml(p.pokemon)}</b><small>#${index + 1}${p.item ? ` • ${escapeHtml(p.item)}` : ""}</small></div>`).join("");
-  return `<button class="team-toggle" data-team-toggle="${key}">👁️ ดูทีมของ ${escapeHtml(player?.name || "ผู้เล่น")}</button><div id="team-preview-${key}" class="team-preview live-team-preview hidden"><b class="team-preview-owner">${source} ของ ${escapeHtml(player?.name || "ผู้เล่น")}</b><div class="auction-sheet-roster">${roster}</div></div>`;
+  const isAuctionTeam = Array.isArray(player?.team) && player.team.length;
+  const source = isAuctionTeam ? "ทีมจากการประมูล" : "Team Sheet";
+  if (isAuctionTeam) {
+    // ทีมจากการประมูล/ดราฟต์ ไม่มีข้อมูลท่า/นิสัย/อบิลิตี้ -> ใช้การ์ดแบบเดิม (ชื่อ + ไอเทม)
+    const roster = profile.map((p, index) => `<div class="auction-sheet-member"><img src="${p.sprite || teamSheetSprite(p.pokemon)}"${p.sprite ? "" : ` data-poke-name="${escapeHtml(p.pokemon)}"`} alt="${escapeHtml(p.pokemon)}" onerror="this.style.visibility='hidden'"><b>${escapeHtml(p.pokemon)}</b><small>#${index + 1}${p.item ? ` • ${escapeHtml(p.item)}` : ""}</small></div>`).join("");
+    return `<button class="team-toggle" data-team-toggle="${key}">👁️ ดูทีมของ ${escapeHtml(player?.name || "ผู้เล่น")}</button><div id="team-preview-${key}" class="team-preview live-team-preview hidden"><b class="team-preview-owner">${source} ของ ${escapeHtml(player?.name || "ผู้เล่น")}</b><div class="auction-sheet-roster">${roster}</div></div>`;
+  }
+  // Team Sheet ที่พิมพ์เอง -> การ์ดแบบละเอียด (3 ต่อแถว + ท่า + ไอเทม/นิสัย/อบิลิตี้)
+  const roster = profile.map((p, index) => {
+    const src = p.sprite || teamSheetSprite(p.pokemon);
+    const dataAttr = p.sprite ? "" : ` data-poke-name="${escapeHtml(p.pokemon)}"`;
+    const movesHtml = (p.moves && p.moves.length) ? p.moves.map(mv => `<div>${escapeHtml(mv)}</div>`).join("") : `<div class="empty-moves">ไม่มีข้อมูลท่า</div>`;
+    return `<div class="live-sheet-card"><header><b>${escapeHtml(p.pokemon)}</b><span>#${index + 1}</span></header><div class="live-sheet-main"><img src="${src}"${dataAttr} alt="${escapeHtml(p.pokemon)}" onerror="this.style.visibility='hidden'"><div class="live-sheet-moves">${movesHtml}</div></div><footer><span>ไอเทม<b>${escapeHtml(p.item || "-")}</b></span><span>นิสัย<b>${escapeHtml(p.nature || "-")}</b></span><span>อบิลิตี้<b>${escapeHtml(p.ability || "-")}</b></span></footer></div>`;
+  }).join("");
+  return `<button class="team-toggle" data-team-toggle="${key}">👁️ ดูทีมของ ${escapeHtml(player?.name || "ผู้เล่น")}</button><div id="team-preview-${key}" class="team-preview live-team-preview hidden"><b class="team-preview-owner">${source} ของ ${escapeHtml(player?.name || "ผู้เล่น")}</b><div class="live-sheet-grid">${roster}</div></div>`;
 }
 function bindTeamToggles(root) { root.querySelectorAll("button[data-team-toggle]").forEach(btn=>btn.addEventListener("click",()=>document.getElementById("team-preview-"+btn.dataset.teamToggle)?.classList.toggle("hidden"))); hydratePokeApiSprites(root); }
 function renderMetaAnalytics(room) {
