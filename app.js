@@ -443,7 +443,7 @@ async function beginNextRound() {
     const t=room.tournament; if(t.phaseComplete) return room;
     let format=room.settings.phases[t.phaseIndex];
     Object.keys(t.pendingWithdrawals||{}).forEach(pid => room.players[pid].withdrawn=true); t.pendingWithdrawals={};
-    let ids=(t.phaseParticipants||activePlayerIds(room)).filter(pid=>!room.players[pid].withdrawn), stats=tournamentStats(room);
+    let ids=(t.phaseParticipants||activePlayerIds(room)).filter(pid=>room.players[pid] && !room.players[pid].withdrawn), stats=tournamentStats(room);
     if (t.started && t.history.length) {
       const previous=t.history[t.history.length-1];
       // รองรับ BYE จากห้องเวอร์ชันเก่า และยืนยันผลที่รายงานแล้วเมื่อโฮสต์เปิดรอบถัดไป
@@ -455,7 +455,7 @@ async function beginNextRound() {
       if(incomplete) { blockedReason = "ยังมีคู่แข่งขันที่ไม่ได้บันทึกผล"; return room; }
       if(format === "single") ids=previous.matches.filter(m=>m.winnerId).map(m=>m.winnerId);
       if(format === "double") { t.losses=t.losses||{}; previous.matches.forEach(m=>{if(!m.isBye&&m.winnerId){const loser=m.winnerId===m.player1Id?m.player2Id:m.player1Id;t.losses[loser]=(t.losses[loser]||0)+1;}}); ids=ids.filter(pid=>(t.losses[pid]||0)<2); }
-      const rrRounds=format === "roundRobin" ? generateRoundRobinSchedule(ids).length : 0;
+      const rrRounds=format === "roundRobin" ? (t.weeklySchedule?.length || generateRoundRobinSchedule(ids).length) : 0;
       const phaseEnded=(format === "single" || format === "double") && ids.length<=1 || (format === "swiss" && t.round+1 >= (room.settings.swissRounds||3)) || (format === "roundRobin" && t.round+1 >= rrRounds);
       if(phaseEnded) {
         if(t.phaseIndex+1 < room.settings.phases.length) { t.phaseComplete=true; return room; }
@@ -465,7 +465,7 @@ async function beginNextRound() {
       else t.round++;
     }
     if(shouldCheckIn(room)) { const checked=Object.keys(t.checkins||{}).filter(pid=>t.checkins[pid]); if(!checked.length) {t.checkinRequired=true; return room;} ids=ids.filter(pid=>checked.includes(pid)); t.checkins={}; t.checkinRequired=false; }
-    const matches = format === "roundRobin" ? generateRoundRobinSchedule(ids)[t.round % Math.max(1,ids.length-1)]?.matches || [] : makePairs(ids,stats);
+    const matches = format === "roundRobin" ? (t.weeklySchedule?.[t.round]?.matches || []) : makePairs(ids,stats);
     t.history.push({phaseIndex:t.phaseIndex,round:t.round+1,format,matches}); t.started=true; return room;
   });
   if (blockedReason) alert(`${blockedReason} — กรุณาระบุผู้ชนะให้ครบก่อนเริ่มรอบต่อไป`);
@@ -531,6 +531,7 @@ function parseTeamSheetProfile(text) {
 function tournamentTeamOf(player) {
   if (Array.isArray(player?.team) && player.team.length) return player.team.map(member => ({
     pokemon: member.displayName || "Pokémon",
+    sprite: member.sprite || "",
     moves: [],
     item: member.price ? `ประมูล ${Number(member.price).toLocaleString()}` : (member.viaTicket ? "รับจากตั๋ว" : (member.viaRandom ? "สุ่มให้" : (member.viaGift ? `ของขวัญจาก ${member.giftedFromName || "เพื่อน"}` : ""))),
     nature: ""
@@ -541,10 +542,10 @@ function profileOf(player) { return tournamentTeamOf(player); }
 function teamPreviewHtml(player, key) {
   const profile=profileOf(player); if(!profile.length) return `<p class="small-text">ยังไม่ได้บันทึกข้อมูลทีม</p>`;
   const source = Array.isArray(player?.team) && player.team.length ? "ทีมจากการประมูล" : "Team Sheet";
-  const roster = profile.map((p, index) => `<div class="auction-sheet-member"><img src="${teamSheetSprite(p.pokemon)}" alt="${escapeHtml(p.pokemon)}" onerror="this.style.visibility='hidden'"><b>${escapeHtml(p.pokemon)}</b><small>#${index + 1}${p.item ? ` • ${escapeHtml(p.item)}` : ""}</small></div>`).join("");
+  const roster = profile.map((p, index) => `<div class="auction-sheet-member"><img src="${p.sprite || teamSheetSprite(p.pokemon)}"${p.sprite ? "" : ` data-poke-name="${escapeHtml(p.pokemon)}"`} alt="${escapeHtml(p.pokemon)}" onerror="this.style.visibility='hidden'"><b>${escapeHtml(p.pokemon)}</b><small>#${index + 1}${p.item ? ` • ${escapeHtml(p.item)}` : ""}</small></div>`).join("");
   return `<button class="team-toggle" data-team-toggle="${key}">👁️ ดูทีมของ ${escapeHtml(player?.name || "ผู้เล่น")}</button><div id="team-preview-${key}" class="team-preview live-team-preview hidden"><b class="team-preview-owner">${source} ของ ${escapeHtml(player?.name || "ผู้เล่น")}</b><div class="auction-sheet-roster">${roster}</div></div>`;
 }
-function bindTeamToggles(root) { root.querySelectorAll("button[data-team-toggle]").forEach(btn=>btn.addEventListener("click",()=>document.getElementById("team-preview-"+btn.dataset.teamToggle)?.classList.toggle("hidden"))); }
+function bindTeamToggles(root) { root.querySelectorAll("button[data-team-toggle]").forEach(btn=>btn.addEventListener("click",()=>document.getElementById("team-preview-"+btn.dataset.teamToggle)?.classList.toggle("hidden"))); hydratePokeApiSprites(root); }
 function renderMetaAnalytics(room) {
   const box=document.getElementById("meta-analytics"), content=document.getElementById("meta-content");
   box.classList.remove("hidden");
@@ -813,6 +814,43 @@ function apiNameCandidates(pokemon) {
     if (n.includes("-")) out.push(n.split("-")[0]); // ตัดท้ายเป็นร่างพื้นฐาน
   }
   return [...new Set(out.filter(Boolean))];
+}
+
+// จับคู่ชื่อโปเกม่อนที่พิมพ์มาจาก Team Sheet (เช่นจาก Showdown export)
+// กับรายการ POKEMON_LIST เพื่อหา apiName ที่ถูกต้อง แล้วดึงรูปจาก PokeAPI แบบเดียวกับตอนประมูล
+function normalizePokeName(name) {
+  return String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+const pokemonListLookup = (() => {
+  const byApiName = new Map(), byDisplayName = new Map();
+  POKEMON_LIST.forEach(pk => {
+    byApiName.set(normalizePokeName(pk.apiName), pk);
+    byDisplayName.set(normalizePokeName(pk.displayName), pk);
+  });
+  return { byApiName, byDisplayName };
+})();
+function findPokemonEntry(name) {
+  const norm = normalizePokeName(name);
+  if (!norm) return null;
+  return pokemonListLookup.byApiName.get(norm)
+    || pokemonListLookup.byDisplayName.get(norm)
+    // ตัดท้ายร่าง/ฟอร์มออก แล้วลองจับคู่แค่ชื่อร่างพื้นฐาน (เช่น "Aegislash-Blank" -> "Aegislash")
+    || pokemonListLookup.byApiName.get(normalizePokeName(String(name).split(/[-\s]/)[0]))
+    || pokemonListLookup.byDisplayName.get(normalizePokeName(String(name).split(/[-\s]/)[0]))
+    || null;
+}
+// ดึงรูปจาก PokeAPI ให้ <img data-poke-name="..."> ที่ยังไม่มีรูปจริง (ใช้ cache เดียวกับตอนประมูล)
+async function hydratePokeApiSprites(root) {
+  if (!root) return;
+  const imgs = [...root.querySelectorAll("img[data-poke-name]")];
+  for (const img of imgs) {
+    const entry = findPokemonEntry(img.dataset.pokeName);
+    if (!entry) continue;
+    try {
+      const sprite = await fetchSprite(entry);
+      if (sprite) img.src = sprite;
+    } catch (e) { /* เน็ตหลุด/หา PokeAPI ไม่เจอ -> ปล่อยรูปเดิมไว้ */ }
+  }
 }
 
 // key ที่ใช้เก็บใน Firebase ต้องไม่มีอักขระ . # $ [ ] /
@@ -2105,6 +2143,7 @@ function renderArchiveDetail(archive) {
   const players = archive.players || {};
   const grid = document.getElementById("adet-teams-grid");
   grid.innerHTML = Object.entries(players).filter(([, p]) => !p.isSpectator).map(([pid, p]) => archiveTeamSheetHtml(p, pid, archive, editing)).join("") || `<p class="archives-empty">ไม่มีข้อมูล Team Sheet</p>`;
+  hydratePokeApiSprites(grid);
 
   if (editing) {
     grid.querySelectorAll("[data-remove-pid]").forEach(btn => {
@@ -2693,7 +2732,7 @@ function archiveTeamSheetHtml(player, pid, archive, editing) {
   const source = isAuctionTeam ? "ทีมจากการประมูล" : "Team Sheet";
   const roster = isAuctionTeam
     ? `<div class="auction-sheet-roster team-size-${archive.settings?.teamSize || 10}">${player.team.map((member, index) => `<div class="auction-sheet-member"><img src="${member.sprite || teamSheetSprite(member.displayName)}" alt="${escapeHtml(member.displayName)}"><b>${escapeHtml(member.displayName)}</b><small>#${index + 1}${member.price ? ` • 💰${Number(member.price).toLocaleString()}` : ""}</small></div>`).join("")}</div>`
-    : `<div class="auction-sheet-roster">${team.map((mon, index) => `<div class="auction-sheet-member"><img src="${teamSheetSprite(mon.pokemon)}" alt="${escapeHtml(mon.pokemon)}" onerror="this.style.visibility='hidden'"><b>${escapeHtml(mon.pokemon)}</b><small>#${index + 1}${mon.item ? ` • ${escapeHtml(mon.item)}` : ""}</small></div>`).join("") || '<p class="archives-empty">ยังไม่ได้ส่ง Team Sheet</p>'}</div>`;
+    : `<div class="auction-sheet-roster">${team.map((mon, index) => `<div class="auction-sheet-member"><img src="${teamSheetSprite(mon.pokemon)}" data-poke-name="${escapeHtml(mon.pokemon)}" alt="${escapeHtml(mon.pokemon)}" onerror="this.style.visibility='hidden'"><b>${escapeHtml(mon.pokemon)}</b><small>#${index + 1}${mon.item ? ` • ${escapeHtml(mon.item)}` : ""}</small></div>`).join("") || '<p class="archives-empty">ยังไม่ได้ส่ง Team Sheet</p>'}</div>`;
   return `<article class="archive-team-sheet">
     <header><div><h3>${escapeHtml(player.name || "ผู้เล่น")}${pid === archive.hostId ? ' <span class="badge">HOST</span>' : ''}</h3><p>${source} • ${team.length || 0}/${isAuctionTeam ? (archive.settings?.teamSize || 10) : 6} ตัว</p></div></header>
     ${roster}
