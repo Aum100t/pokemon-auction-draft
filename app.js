@@ -1404,10 +1404,12 @@ function renderGame(room) {
   const meFull = amSpectator || isRestrictedOrganizerHost || (me.team?.length || 0) >= room.settings.teamSize;
 
   const turnIndicator = document.getElementById("turn-indicator");
-  if (amSpectator) {
-    turnIndicator.textContent = "👀 คุณเป็นผู้สังเกตการณ์ — ดูการประมูลได้ แต่ร่วมประมูล/แบน/ใช้ตั๋วไม่ได้";
-  } else if (isRestrictedOrganizerHost) {
+  // ผู้จัด (host) ที่เลือกโหมด "ผู้จัดเป็นผู้เลือกขึ้นประมูล" ต้องเลือกโปเกม่อนขึ้นประมูลได้เสมอ
+  // แม้จะตั้งสถานะตัวเองเป็นผู้สังเกตการณ์ (spectator) ก็ตาม จึงต้องเช็ค isRestrictedOrganizerHost ก่อน amSpectator
+  if (isRestrictedOrganizerHost) {
     turnIndicator.textContent = "🧭 คุณเป็นผู้จัด เลือกโปเกม่อนขึ้นประมูลได้ แต่ร่วมบิด/แบน/ใช้ตั๋วเองไม่ได้";
+  } else if (amSpectator) {
+    turnIndicator.textContent = "👀 คุณเป็นผู้สังเกตการณ์ — ดูการประมูลได้ แต่ร่วมประมูล/แบน/ใช้ตั๋วไม่ได้";
   } else if (organizerSelects) {
     turnIndicator.textContent = isHost
       ? "🧭 คุณเป็นผู้จัด เลือกโปเกม่อนขึ้นประมูลได้"
@@ -1472,10 +1474,10 @@ function renderGame(room) {
     const increment = room.settings.minBidIncrement;
     const controlsDiv = document.getElementById("bid-controls");
     controlsDiv.innerHTML = "";
-    if (amSpectator) {
-      controlsDiv.innerHTML = '<p class="small-text">👀 คุณเป็นผู้สังเกตการณ์ ไม่สามารถร่วมประมูลได้</p>';
-    } else if (isRestrictedOrganizerHost) {
+    if (isRestrictedOrganizerHost) {
       controlsDiv.innerHTML = '<p class="small-text">🧭 คุณเป็นผู้จัด มีหน้าที่คัดโปเกม่อนขึ้นประมูล ไม่สามารถร่วมบิดเองได้</p>';
+    } else if (amSpectator) {
+      controlsDiv.innerHTML = '<p class="small-text">👀 คุณเป็นผู้สังเกตการณ์ ไม่สามารถร่วมประมูลได้</p>';
     } else if (!meFull && me.money < increment) {
       controlsDiv.innerHTML = '<p class="small-text">💸 เงินของคุณหมดแล้ว ไม่สามารถบิดได้ (เมื่อไม่เหลือใครบิดได้ ระบบจะสุ่มโปเกม่อนให้จนครบทีม)</p>';
     } else if (!meFull) {
@@ -1658,7 +1660,9 @@ function renderPool(room, isMyTurn, me) {
   const isRestrictedOrganizerHost = organizerSelects && currentPlayerId === room.hostId;
   const meFull = amSpectator || isRestrictedOrganizerHost || (me.team?.length || 0) >= room.settings.teamSize;
 
-  const canChoosePokemon = !amSpectator && !randomSelects && (organizerSelects ? isHost : isMyTurn);
+  // โหมด "ผู้จัดเป็นผู้เลือก": ผู้จัดต้องเลือกโปเกม่อนขึ้นประมูลได้เสมอ แม้จะตั้งตัวเองเป็นผู้สังเกตการณ์
+  // (การเป็นผู้สังเกตการณ์มีผลแค่ห้ามร่วมบิด/แบน/ใช้ตั๋วเท่านั้น ไม่ควรห้ามการเลือกตัวขึ้นประมูลของผู้จัด)
+  const canChoosePokemon = !randomSelects && (organizerSelects ? isHost : (!amSpectator && isMyTurn));
   const hidePokemon = room.settings?.auctionReveal === "hidden";
   Object.values(room.pool).forEach(poke => {
     if (currentFilter === "normal" && poke.isMega) return;
