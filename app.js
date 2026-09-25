@@ -980,7 +980,7 @@ async function updateRoom(mutator) {
 }
 
 function advanceTurn(room) {
-  if (room.settings?.auctionSelector === "organizer") return;
+  if (room.settings?.auctionSelector === "organizer" || room.settings?.auctionSelector === "random") return;
   const n = room.turnOrder.length;
   room.currentTurnIndex = (room.currentTurnIndex + 1) % n;
 }
@@ -1101,6 +1101,7 @@ async function nominatePokemon(poolKey) {
   await updateRoom((room) => {
     if (room.status !== "picking" || room.auction) return room;
     const organizerSelects = room.settings?.auctionSelector === "organizer";
+    if (room.settings?.auctionSelector === "random") return room; // โหมดนี้สุ่มเท่านั้น ห้ามเลือกเอง ใช้ nominateRandomPokemon แทน
     if (organizerSelects ? currentPlayerId !== room.hostId : room.turnOrder[room.currentTurnIndex] !== currentPlayerId) return room;
     const poke = room.pool[poolKey];
     if (!poke || poke.status !== "available") return room;
@@ -1122,11 +1123,42 @@ async function nominatePokemon(poolKey) {
   });
 }
 
+// โหมดสุ่มตัวขึ้นประมูล: ผู้จัดห้อง (host) กดปุ่มเพื่อสุ่มโปเกม่อนที่ยังว่างขึ้นประมูลทีละตัว
+// nominatedBy ตั้งเป็น null (ไม่ใช่ host) เพื่อให้ host เองก็ร่วมบิด/ใช้ตั๋วเลือกกับตัวนี้ได้ตามปกติ ไม่ถือว่าเป็นคนเสนอ
+async function nominateRandomPokemon() {
+  await updateRoom((room) => {
+    if (room.status !== "picking" || room.auction) return room;
+    if (room.settings?.auctionSelector !== "random") return room;
+    if (currentPlayerId !== room.hostId) return room;
+    const availableKeys = Object.keys(room.pool).filter(key => room.pool[key].status === "available");
+    if (!availableKeys.length) return room;
+    const poolKey = availableKeys[Math.floor(Math.random() * availableKeys.length)];
+    const poke = room.pool[poolKey];
+    const timerSeconds = Number(room.settings?.timerSeconds ?? 10);
+    poke.status = "auctioning";
+    room.auction = {
+      poolKey,
+      displayName: poke.displayName,
+      isMega: poke.isMega,
+      sprite: poke.sprite,
+      nominatedBy: null,
+      nominatedByName: "🎲 สุ่มโดยระบบ",
+      currentBid: 0,
+      currentBidderId: null,
+      currentBidderName: null,
+      endTime: timerSeconds > 0 ? Date.now() + timerSeconds * 1000 : null
+    };
+    return room;
+  });
+}
+
 async function placeBid(amount) {
   await updateRoom((room) => {
     if (!room.auction || (room.auction.endTime && Date.now() >= room.auction.endTime)) return room;
     const player = room.players[currentPlayerId];
-    if (!player) return room;
+    if (!player || player.isSpectator) return room;
+    // โหมดผู้จัดเลือกเอง: ผู้จัดมีหน้าที่คัดโปเกม่อนขึ้นประมูลเท่านั้น ห้ามร่วมบิดเอง
+    if (room.settings?.auctionSelector === "organizer" && currentPlayerId === room.hostId) return room;
     if ((player.team?.length || 0) >= room.settings.teamSize) return room;
     const minNext = room.auction.currentBid + room.settings.minBidIncrement;
     if (amount < minNext || amount > player.money) return room;
@@ -1142,7 +1174,9 @@ async function placeBid(amount) {
 async function usePickTicket(poolKey) {
   await updateRoom((room) => {
     const player = room.players[currentPlayerId];
-    if (!player || player.pickTicketUsed) return room;
+    if (!player || player.isSpectator || player.pickTicketUsed) return room;
+    // โหมดผู้จัดเลือกเอง: ผู้จัดใช้ตั๋วเลือก/สแนปไม่ได้
+    if (room.settings?.auctionSelector === "organizer" && currentPlayerId === room.hostId) return room;
     if ((player.team?.length || 0) >= room.settings.teamSize) return room;
     const poke = room.pool[poolKey];
     // ใช้ได้เฉพาะโปเกม่อนที่กำลังขึ้นประมูลอยู่ตอนนี้เท่านั้น
@@ -1168,7 +1202,9 @@ async function usePickTicket(poolKey) {
 async function useBanTicket(poolKey) {
   await updateRoom((room) => {
     const player = room.players[currentPlayerId];
-    if (!player || player.banTicketUsed) return room;
+    if (!player || player.isSpectator || player.banTicketUsed) return room;
+    // โหมดผู้จัดเลือกเอง: ผู้จัดใช้ตั๋วแบนไม่ได้
+    if (room.settings?.auctionSelector === "organizer" && currentPlayerId === room.hostId) return room;
     const poke = room.pool[poolKey];
     if (!poke || poke.status !== "available") return room;
     poke.status = "banned";
@@ -1188,10 +1224,10 @@ async function sendGiftPokemon(memberIndex, targetPlayerId) {
     if (!targetPlayerId || targetPlayerId === currentPlayerId) return room;
 
     const player = room.players[currentPlayerId];
-    if (!player || player.giftTicketUsed) return room;
+    if (!player || player.isSpectator || player.giftTicketUsed) return room;
 
     const target = room.players[targetPlayerId];
-    if (!target) return room;
+    if (!target || target.isSpectator) return room;
 
     const teamSize = room.settings.teamSize;
     if ((target.team?.length || 0) >= teamSize) return room;
@@ -1335,16 +1371,27 @@ function renderGame(room) {
   if (!room.turnOrder) return;
 
   const organizerSelects = room.settings?.auctionSelector === "organizer";
-  const myTurnPid = organizerSelects ? room.hostId : room.turnOrder[room.currentTurnIndex];
-  const isMyTurn = myTurnPid === currentPlayerId;
+  const randomSelects = room.settings?.auctionSelector === "random";
+  const myTurnPid = organizerSelects ? room.hostId : (randomSelects ? null : room.turnOrder[room.currentTurnIndex]);
+  const isMyTurn = !randomSelects && myTurnPid === currentPlayerId;
   const me = room.players[currentPlayerId];
-  const meFull = (me.team?.length || 0) >= room.settings.teamSize;
+  const amSpectator = !!me.isSpectator;
+  const isRestrictedOrganizerHost = organizerSelects && currentPlayerId === room.hostId;
+  const meFull = amSpectator || isRestrictedOrganizerHost || (me.team?.length || 0) >= room.settings.teamSize;
 
   const turnIndicator = document.getElementById("turn-indicator");
-  if (organizerSelects) {
+  if (amSpectator) {
+    turnIndicator.textContent = "👀 คุณเป็นผู้สังเกตการณ์ — ดูการประมูลได้ แต่ร่วมประมูล/แบน/ใช้ตั๋วไม่ได้";
+  } else if (isRestrictedOrganizerHost) {
+    turnIndicator.textContent = "🧭 คุณเป็นผู้จัด เลือกโปเกม่อนขึ้นประมูลได้ แต่ร่วมบิด/แบน/ใช้ตั๋วเองไม่ได้";
+  } else if (organizerSelects) {
     turnIndicator.textContent = isHost
       ? "🧭 คุณเป็นผู้จัด เลือกโปเกม่อนขึ้นประมูลได้"
       : `🧭 ผู้จัด (${room.players[room.hostId]?.name || "-"}) กำลังเลือกโปเกม่อนขึ้นประมูล`;
+  } else if (randomSelects) {
+    turnIndicator.textContent = room.auction
+      ? "🎲 กำลังประมูลตัวที่สุ่มได้ — ร่วมบิดได้เลย"
+      : (isHost ? "🎲 กดปุ่ม \"สุ่มโปเกม่อนขึ้นประมูล\" เพื่อเริ่มรอบถัดไป" : `🎲 รอผู้จัด (${room.players[room.hostId]?.name || "-"}) สุ่มโปเกม่อนตัวถัดไป`);
   } else if (isMyTurn) {
     turnIndicator.textContent = meFull
       ? "🎯 ตาของคุณ (ทีมเต็มแล้ว แต่ยังเสนอประมูลให้คนอื่นได้)"
@@ -1355,6 +1402,11 @@ function renderGame(room) {
   const meBrokeNotFull = !meFull && me.money < room.settings.minBidIncrement;
   if (meBrokeNotFull) {
     turnIndicator.textContent += " | 💸 เงินหมดแล้ว รอระบบสุ่มโปเกม่อนให้จนครบ";
+  }
+  const randomNominateBtn = document.getElementById("btn-random-nominate");
+  if (randomNominateBtn) {
+    randomNominateBtn.classList.toggle("hidden", !(randomSelects && isHost && room.status === "picking" && !room.auction));
+    randomNominateBtn.onclick = () => { randomNominateBtn.disabled = true; nominateRandomPokemon().finally(() => { randomNominateBtn.disabled = false; }); };
   }
   turnIndicator.classList.toggle("my-turn", isMyTurn);
 
@@ -1396,7 +1448,11 @@ function renderGame(room) {
     const increment = room.settings.minBidIncrement;
     const controlsDiv = document.getElementById("bid-controls");
     controlsDiv.innerHTML = "";
-    if (!meFull && me.money < increment) {
+    if (amSpectator) {
+      controlsDiv.innerHTML = '<p class="small-text">👀 คุณเป็นผู้สังเกตการณ์ ไม่สามารถร่วมประมูลได้</p>';
+    } else if (isRestrictedOrganizerHost) {
+      controlsDiv.innerHTML = '<p class="small-text">🧭 คุณเป็นผู้จัด มีหน้าที่คัดโปเกม่อนขึ้นประมูล ไม่สามารถร่วมบิดเองได้</p>';
+    } else if (!meFull && me.money < increment) {
       controlsDiv.innerHTML = '<p class="small-text">💸 เงินของคุณหมดแล้ว ไม่สามารถบิดได้ (เมื่อไม่เหลือใครบิดได้ ระบบจะสุ่มโปเกม่อนให้จนครบทีม)</p>';
     } else if (!meFull) {
       [increment, increment * 2, increment * 5].forEach(step => {
@@ -1572,10 +1628,13 @@ function bannedSummaryHtml(list) {
 function renderPool(room, isMyTurn, me) {
   const grid = document.getElementById("pool-grid");
   grid.innerHTML = "";
-  const meFull = (me.team?.length || 0) >= room.settings.teamSize;
-
+  const amSpectator = !!me.isSpectator;
   const organizerSelects = room.settings?.auctionSelector === "organizer";
-  const canChoosePokemon = organizerSelects ? isHost : isMyTurn;
+  const randomSelects = room.settings?.auctionSelector === "random";
+  const isRestrictedOrganizerHost = organizerSelects && currentPlayerId === room.hostId;
+  const meFull = amSpectator || isRestrictedOrganizerHost || (me.team?.length || 0) >= room.settings.teamSize;
+
+  const canChoosePokemon = !amSpectator && !randomSelects && (organizerSelects ? isHost : isMyTurn);
   const hidePokemon = room.settings?.auctionReveal === "hidden";
   Object.values(room.pool).forEach(poke => {
     if (currentFilter === "normal" && poke.isMega) return;
@@ -1601,11 +1660,11 @@ function renderPool(room, isMyTurn, me) {
       if (poke.status === "available" && !room.auction && canNominate) {
         html += `<button class="btn-nominate" data-action="nominate" data-id="${poke.id}">เสนอประมูล</button>`;
       }
-      if (poke.status === "available" && !me.banTicketUsed) {
+      if (poke.status === "available" && !me.banTicketUsed && !amSpectator && !isRestrictedOrganizerHost) {
         html += `<button class="btn-ban" data-action="ban" data-id="${poke.id}">แบน 🚫</button>`;
       }
       const cantSnipeOwn = poke.status === "auctioning" && room.auction?.nominatedBy === currentPlayerId;
-      if (poke.status === "auctioning" && !me.pickTicketUsed && !meFull && !cantSnipeOwn) {
+      if (poke.status === "auctioning" && !me.pickTicketUsed && !meFull && !cantSnipeOwn && !amSpectator && !isRestrictedOrganizerHost) {
         html += `<button class="btn-pick" data-action="pick" data-id="${poke.id}">ใช้ตั๋วเลือก 🎫</button>`;
       }
       if (poke.status === "auctioning") html += `<div class="owner-tag">⚔️ กำลังประมูล</div>`;

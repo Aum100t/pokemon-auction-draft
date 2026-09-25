@@ -31,7 +31,7 @@
           <select id="create-auction-team-size"><option value="6">6 ตัว</option><option value="10" selected>10 ตัว</option></select>
         </div>
         <label class="field-label">ลำดับผู้เลือกโปเกม่อนขึ้นประมูล</label>
-        <select id="create-auction-selector"><option value="rotation">วนตามตาผู้เล่น (ปกติ)</option><option value="organizer">ผู้จัดเลือกขึ้นประมูลคนเดียว</option></select>
+        <select id="create-auction-selector"><option value="rotation">วนตามตาผู้เล่น (ปกติ)</option><option value="organizer">ผู้จัดเลือกขึ้นประมูลคนเดียว</option><option value="random">สุ่มตัวขึ้นประมูล (ผู้จัดกดเริ่มรอบ)</option></select>
         <label class="field-label">การเปิดเผยโปเกม่อน</label>
         <select id="create-auction-reveal"><option value="visible">แสดงชื่อและรูปให้ทุกคนเห็น</option><option value="hidden">ซ่อนจนกว่าการประมูลจะจบ</option></select>
         <label class="field-label">เวลาต่อการประมูล</label>
@@ -141,6 +141,8 @@
     </div>
 
     <div class="players-strip" id="players-strip"></div>
+
+    <button class="primary hidden" id="btn-random-nominate">🎲 สุ่มโปเกม่อนขึ้นประมูล</button>
 
     <div id="auction-box" class="auction-box hidden">
       <img id="auc-img" src="" alt="">
