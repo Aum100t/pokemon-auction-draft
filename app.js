@@ -41,6 +41,7 @@ let currentWeekView = 1;
 let currentTournamentView = "matches";
 let latestRoom = null;
 let disconnectCancelled = false;
+let selfLeaving = false; // กันไม่ให้ตัวเองเห็น alert "ถูกเตะออก" ตอนที่กดออกจากห้องเอง
 
 // ระบบสิทธิ์ / บทบาท (ตรวจสิทธิ์จริงที่ Firebase Rules — ฝั่งนี้แค่ใช้ซ่อน/โชว์ปุ่ม)
 let currentUser = null;
@@ -276,6 +277,15 @@ function enterLobby(roomId, playerId, hostStatus) {
     const room = snapshot.val();
     latestRoom = room;
 
+    // โดนโฮสต์เตะออกจากห้อง (เฉพาะตอนยังรอเริ่ม ผู้เล่นจะถูกลบออกจาก room.players ไปเลย) -> เด้งกลับหน้าแรก
+    if (!selfLeaving && room.players && !room.players[currentPlayerId]) {
+      localStorage.removeItem("vgcLab_roomId");
+      localStorage.removeItem("vgcLab_playerId");
+      alert("คุณถูกโฮสต์เตะออกจากห้องนี้แล้ว");
+      location.reload();
+      return;
+    }
+
     // เกมเริ่มแล้ว -> ยกเลิกการลบอัตโนมัติตอนหลุดการเชื่อมต่อ
     if (room.status !== "waiting" && !disconnectCancelled) {
       onDisconnect(ref(db, `rooms/${roomId}/players/${playerId}`)).cancel();
@@ -350,9 +360,11 @@ function renderLobby(room) {
   Object.keys(players).forEach((pid) => {
     const p = players[pid];
     const li = document.createElement("li");
-    li.innerHTML = `<span>${escapeHtml(p.name)}</span>${p.isHost ? '<span class="badge">HOST</span>' : ''}${p.isSpectator ? '<span class="badge">SPECTATOR</span>' : ''}${requiresTeamSheet && !p.isSpectator ? (hasSubmittedTeamSheet(p) ? '<span class="badge team-sheet-ready">📄 ส่ง Team Sheet แล้ว</span>' : '<span class="badge team-sheet-missing">⏳ รอ Team Sheet</span>') : ''}`;
+    const canKick = isHost && pid !== currentPlayerId && !p.isHost;
+    li.innerHTML = `<span>${escapeHtml(p.name)}</span>${p.isHost ? '<span class="badge">HOST</span>' : ''}${p.isSpectator ? '<span class="badge">SPECTATOR</span>' : ''}${requiresTeamSheet && !p.isSpectator ? (hasSubmittedTeamSheet(p) ? '<span class="badge team-sheet-ready">📄 ส่ง Team Sheet แล้ว</span>' : '<span class="badge team-sheet-missing">⏳ รอ Team Sheet</span>') : ''}${canKick ? `<button class="btn-kick" data-kick-lobby="${pid}">เตะออก</button>` : ''}`;
     listEl.appendChild(li);
   });
+  listEl.querySelectorAll("button[data-kick-lobby]").forEach(btn => btn.addEventListener("click", () => kickPlayerFromLobby(btn.dataset.kickLobby)));
 
   if (isHost) {
     const startBtn = document.getElementById("btn-start");
@@ -465,8 +477,8 @@ async function beginNextRound() {
       });
       const incomplete=previous.matches.some(m=>!m.winnerId);
       if(incomplete) { blockedReason = "ยังมีคู่แข่งขันที่ไม่ได้บันทึกผล"; return room; }
-      if(format === "single") ids=previous.matches.filter(m=>m.winnerId).map(m=>m.winnerId);
-      if(format === "double") { t.losses=t.losses||{}; previous.matches.forEach(m=>{if(!m.isBye&&m.winnerId){const loser=m.winnerId===m.player1Id?m.player2Id:m.player1Id;t.losses[loser]=(t.losses[loser]||0)+1;}}); ids=ids.filter(pid=>(t.losses[pid]||0)<2); }
+      if(format === "single") ids=previous.matches.filter(m=>m.winnerId).map(m=>m.winnerId).filter(pid=>room.players[pid] && !room.players[pid].withdrawn);
+      if(format === "double") { t.losses=t.losses||{}; previous.matches.forEach(m=>{if(!m.isBye&&m.winnerId){const loser=m.winnerId===m.player1Id?m.player2Id:m.player1Id;t.losses[loser]=(t.losses[loser]||0)+1;}}); ids=ids.filter(pid=>(t.losses[pid]||0)<2 && room.players[pid] && !room.players[pid].withdrawn); }
       const rrRounds=format === "roundRobin" ? (t.weeklySchedule?.length || generateRoundRobinSchedule(ids).length) : 0;
       const phaseEnded=(format === "single" || format === "double") && ids.length<=1 || (format === "swiss" && t.round+1 >= (room.settings.swissRounds||3)) || (format === "roundRobin" && t.round+1 >= rrRounds);
       if(phaseEnded) {
@@ -478,6 +490,16 @@ async function beginNextRound() {
     }
     if(shouldCheckIn(room)) { const checked=Object.keys(t.checkins||{}).filter(pid=>t.checkins[pid]); if(!checked.length) {t.checkinRequired=true; return room;} ids=ids.filter(pid=>checked.includes(pid)); t.checkins={}; t.checkinRequired=false; }
     const matches = format === "roundRobin" ? (t.weeklySchedule?.[t.round]?.matches || []) : makePairs(ids,stats);
+    // ตารางแบบ Round Robin ถูกสร้างไว้ล่วงหน้าตั้งแต่ต้นทัวร์นาเมนต์ ถ้ามีใครถอนตัว/ถูกเตะออกไปแล้ว
+    // ระหว่างทาง คู่ของรอบถัดไปที่มีเขาอยู่ต้องถูกปรับให้อีกฝ่ายชนะอัตโนมัติ ไม่ใช่ปล่อยให้ยังจับคู่แข่งกันอยู่
+    matches.forEach(m => {
+      if (m.winnerId) return;
+      const p1Out = !!room.players[m.player1Id]?.withdrawn;
+      const p2Out = !!(m.player2Id && room.players[m.player2Id]?.withdrawn);
+      if (p1Out && p2Out) { m.winnerId = null; m.isBye = true; m.score = "ถอนตัวทั้งคู่"; }
+      else if (p1Out) { m.winnerId = m.player2Id; m.score = "ถอนตัว"; m.reportedAt = Date.now(); }
+      else if (p2Out) { m.winnerId = m.player1Id; m.score = "ถอนตัว"; m.reportedAt = Date.now(); }
+    });
     t.history.push({phaseIndex:t.phaseIndex,round:t.round+1,format,matches}); t.started=true; return room;
   });
   if (blockedReason) alert(`${blockedReason} — กรุณาระบุผู้ชนะให้ครบก่อนเริ่มรอบต่อไป`);
@@ -527,6 +549,51 @@ async function tournamentAction(action, payload={}) {
     return false;
   }
 }
+
+// ---------- เตะผู้เล่นออกจากห้อง (โฮสต์เท่านั้น) ----------
+// ห้องรอเริ่ม: ลบผู้เล่นออกจากห้องไปเลย เพราะยังไม่มีสถิติ/แมตช์ผูกอยู่
+async function kickPlayerFromLobby(targetPlayerId) {
+  if (!isHost || !currentRoomId || !targetPlayerId || targetPlayerId === currentPlayerId) return;
+  const targetName = latestRoom?.players?.[targetPlayerId]?.name || "ผู้เล่นนี้";
+  if (!confirm(`เตะ "${targetName}" ออกจากห้องหรือไม่?`)) return;
+  try {
+    await updateRoom((room) => {
+      if (currentPlayerId !== room.hostId || room.status !== "waiting") return room;
+      const target = room.players?.[targetPlayerId];
+      if (!target || target.isHost) return room;
+      if (target.userUid && room.memberUids) delete room.memberUids[target.userUid];
+      delete room.players[targetPlayerId];
+      return room;
+    });
+  } catch (error) {
+    console.error("kickPlayerFromLobby failed:", error);
+    alert("เตะผู้เล่นไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+  }
+}
+// ระหว่างทัวร์นาเมนต์: ทำเสมือนถอนตัวให้ (คงสถิติ/ทีมไว้เพื่อดูย้อนหลัง) พร้อมปรับให้คู่แข่งขันปัจจุบันชนะทันที
+async function kickPlayerFromTournament(targetPlayerId) {
+  if (!isHost || !currentRoomId || !targetPlayerId || targetPlayerId === currentPlayerId) return;
+  const targetName = latestRoom?.players?.[targetPlayerId]?.name || "ผู้เล่นนี้";
+  if (!confirm(`เตะ "${targetName}" ออกจากทัวร์นาเมนต์หรือไม่? ระบบจะถือว่าถอนตัว และปรับให้คู่แข่งขันปัจจุบันชนะทันที`)) return;
+  try {
+    await updateRoom((room) => {
+      const t = room.tournament;
+      if (currentPlayerId !== room.hostId || room.status !== "tournament" || !t) return room;
+      const target = room.players?.[targetPlayerId];
+      if (!target || target.withdrawn) return room;
+      target.withdrawn = true;
+      target.kicked = true;
+      const current = t.history?.[t.history.length - 1];
+      const match = current?.matches?.find(m => !m.isBye && !m.winnerId && (m.player1Id === targetPlayerId || m.player2Id === targetPlayerId));
+      if (match) { match.winnerId = match.player1Id === targetPlayerId ? match.player2Id : match.player1Id; match.score = "ถูกเตะออก"; match.reportedAt = Date.now(); }
+      return room;
+    });
+  } catch (error) {
+    console.error("kickPlayerFromTournament failed:", error);
+    alert("เตะผู้เล่นไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+  }
+}
+
 function parseTeamProfile(text) {
   return String(text||"").split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => {
     const [pokemon="", moves="", item="", nature=""] = line.split("|").map(x=>x.trim());
@@ -716,7 +783,7 @@ function renderTournament(room) {
   document.getElementById("btn-advance-phase").classList.toggle("hidden",!isHost || !activeTournament || !t.phaseComplete || t.phaseIndex+1>=room.settings.phases.length); document.getElementById("btn-advance-phase").onclick=advanceTournamentPhase;
   document.getElementById("btn-finish-tournament").classList.toggle("hidden",!isHost||!activeTournament); document.getElementById("btn-finish-tournament").onclick=()=>finishTournament(room);
   const withdrawn=!!room.players[currentPlayerId]?.withdrawn; const withdrawButton=document.getElementById("btn-withdraw"); withdrawButton.classList.toggle("hidden",withdrawn||amSpectator||!activeTournament); document.getElementById("btn-cancel-withdraw").classList.add("hidden"); withdrawButton.onclick=async()=>{if(!confirm("ยืนยันถอนตัว? คุณจะกลับเข้ารายการนี้ไม่ได้")) return; withdrawButton.disabled=true; const saved=await tournamentAction("withdraw"); if(saved) document.getElementById("admin-call-status").textContent="ถอนตัวสำเร็จแล้ว"; withdrawButton.disabled=false;};
-  const table=document.getElementById("tournament-standings"); table.innerHTML=`<tr><th>#</th><th>ผู้เล่น</th><th>ชนะ</th><th>แพ้</th><th>แต้ม</th><th>ทีม</th></tr>`+stats.map((s,i)=>`<tr><td>${i+1}</td><td>${escapeHtml(s.name)}${room.players[s.pid].withdrawn?" (ถอนตัว)":""}</td><td>${s.wins}</td><td>${s.losses}</td><td>${s.points}</td><td>${teamPreviewHtml(room.players[s.pid],`standing-${s.pid}`)}</td></tr>`).join(""); bindTeamToggles(table);
+  const table=document.getElementById("tournament-standings"); table.innerHTML=`<tr><th>#</th><th>ผู้เล่น</th><th>ชนะ</th><th>แพ้</th><th>แต้ม</th><th>ทีม</th><th></th></tr>`+stats.map((s,i)=>`<tr><td>${i+1}</td><td>${escapeHtml(s.name)}${room.players[s.pid].withdrawn?" (ถอนตัว)":""}</td><td>${s.wins}</td><td>${s.losses}</td><td>${s.points}</td><td>${teamPreviewHtml(room.players[s.pid],`standing-${s.pid}`)}</td><td>${isHost&&activeTournament&&s.pid!==currentPlayerId&&!room.players[s.pid].withdrawn?`<button class="btn-kick" data-kick-tournament="${s.pid}">เตะออก</button>`:""}</td></tr>`).join(""); bindTeamToggles(table); table.querySelectorAll("button[data-kick-tournament]").forEach(btn=>btn.addEventListener("click",()=>kickPlayerFromTournament(btn.dataset.kickTournament)));
 }
 
 function renderTournamentAuctionTeams(room) {
@@ -1929,6 +1996,7 @@ async function leaveRoom({ confirmFirst = true, preservePlayer = false } = {}) {
 
   const roomId = currentRoomId;
   const playerId = currentPlayerId;
+  selfLeaving = true;
 
   try {
     if (roomId && playerId) {

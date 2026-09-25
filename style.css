@@ -106,6 +106,8 @@ button:disabled { cursor:not-allowed; opacity:.48; }
 .player-list { padding:0; list-style:none; }
 .player-list li { display:flex; justify-content:space-between; margin:7px 0; padding:10px 12px; border-radius:9px; background:rgba(255,255,255,.055); }
 .badge { display:inline-block; margin-left:7px; padding:3px 7px; border-radius:999px; background:var(--gold); color:#172740; font-size:.68rem; font-weight:900; }
+.btn-kick { display:inline-block; margin-left:7px; padding:3px 9px; border:none; border-radius:999px; background:linear-gradient(135deg,#e75e77,#bd3558); color:#fff; font-size:.7rem; font-weight:800; cursor:pointer; }
+.btn-kick:hover { filter:brightness(1.1); }
 .team-sheet-ready { background:#7ce6b1; color:#073421; }.team-sheet-missing { background:#ffd45a; color:#5d3a00; }
 .team-sheet-progress { display:grid; grid-template-columns:auto 1fr; align-items:center; gap:6px 10px; margin:10px 0 14px; padding:11px 13px; border:1px solid rgba(124,230,177,.25); border-radius:12px; background:linear-gradient(135deg,rgba(39,122,92,.22),rgba(18,52,76,.28)); color:#dff8ea; font-size:.9rem; }.team-sheet-progress b { text-align:right; color:#8af2bc; }.team-sheet-progress-bar { grid-column:1/-1; height:6px; overflow:hidden; border-radius:999px; background:rgba(0,0,0,.22); }.team-sheet-progress-bar i { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#68dca2,#b7f49b); transition:width .25s ease; }
 .game-header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-bottom:15px; border-bottom:1px solid var(--line); }
