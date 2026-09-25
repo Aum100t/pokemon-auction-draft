@@ -7,6 +7,18 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
 import { POKEMON_LIST } from "./pokemon-list.js";
 
+// ---------- Server-synced clock ----------
+// นาฬิกาเครื่องผู้เล่นแต่ละคนอาจไม่ตรงกัน ถ้าใช้ Date.now() ตรงๆ ในการตั้ง/เช็คเวลาหมดอายุ
+// การประมูล จะทำให้ผู้เล่นที่นาฬิกาเดินเร็ว/ช้ากว่าเครื่องอื่น ปิดประมูลเร็วหรือช้ากว่าที่ตั้งไว้จริง
+// จึงต้องอ้างอิง serverTimeOffset จาก Firebase เพื่อให้ทุกเครื่องเห็นเวลาเดียวกัน
+let serverTimeOffset = 0;
+onValue(ref(db, ".info/serverTimeOffset"), (snap) => {
+  serverTimeOffset = snap.val() || 0;
+});
+function serverNow() {
+  return Date.now() + serverTimeOffset;
+}
+
 // ---------- Utility ----------
 function generateRoomCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -1129,7 +1141,7 @@ async function nominatePokemon(poolKey) {
       currentBid: 0,
       currentBidderId: null,
       currentBidderName: null,
-      endTime: timerSeconds > 0 ? Date.now() + timerSeconds * 1000 : null
+      endTime: timerSeconds > 0 ? serverNow() + timerSeconds * 1000 : null
     };
     return room;
   });
@@ -1158,7 +1170,7 @@ async function nominateRandomPokemon() {
       currentBid: 0,
       currentBidderId: null,
       currentBidderName: null,
-      endTime: timerSeconds > 0 ? Date.now() + timerSeconds * 1000 : null
+      endTime: timerSeconds > 0 ? serverNow() + timerSeconds * 1000 : null
     };
     return room;
   });
@@ -1166,7 +1178,7 @@ async function nominateRandomPokemon() {
 
 async function placeBid(amount) {
   await updateRoom((room) => {
-    if (!room.auction || (room.auction.endTime && Date.now() >= room.auction.endTime)) return room;
+    if (!room.auction || (room.auction.endTime && serverNow() >= room.auction.endTime)) return room;
     const player = room.players[currentPlayerId];
     if (!player || player.isSpectator) return room;
     // โหมดผู้จัดเลือกเอง: ผู้จัดมีหน้าที่คัดโปเกม่อนขึ้นประมูลเท่านั้น ห้ามร่วมบิดเอง
@@ -1178,7 +1190,7 @@ async function placeBid(amount) {
     room.auction.currentBidderId = currentPlayerId;
     room.auction.currentBidderName = player.name;
     const timerSeconds = Number(room.settings?.timerSeconds ?? 10);
-    if (timerSeconds > 0) room.auction.endTime = Date.now() + timerSeconds * 1000;
+    if (timerSeconds > 0) room.auction.endTime = serverNow() + timerSeconds * 1000;
     return room;
   });
 }
@@ -1276,7 +1288,7 @@ async function sendGiftPokemon(memberIndex, targetPlayerId) {
 
 async function resolveAuctionIfExpired() {
   await updateRoom((room) => {
-    if (!room.auction?.endTime || Date.now() < room.auction.endTime) return room;
+    if (!room.auction?.endTime || serverNow() < room.auction.endTime) return room;
     const auction = room.auction;
     const poke = room.pool[auction.poolKey];
 
@@ -1373,7 +1385,7 @@ setInterval(() => {
   if (!latestRoom?.auction?.endTime) return;
   const timerEl = document.getElementById("auc-timer");
   if (!timerEl) return;
-  const remain = Math.max(0, Math.ceil((latestRoom.auction.endTime - Date.now()) / 1000));
+  const remain = Math.max(0, Math.ceil((latestRoom.auction.endTime - serverNow()) / 1000));
   timerEl.textContent = remain;
 }, 250);
 
@@ -1455,7 +1467,7 @@ function renderGame(room) {
       ? `บิดล่าสุด ${a.currentBid.toLocaleString()} โดย ${a.currentBidderName}`
       : (a.endTime ? "ยังไม่มีการบิด (หมดเวลาแล้วจะตกไปกองขยะ)" : "ยังไม่มีการบิด");
 
-    document.getElementById("auc-timer").textContent = a.endTime ? Math.max(0, Math.ceil((a.endTime - Date.now()) / 1000)) : "∞";
+    document.getElementById("auc-timer").textContent = a.endTime ? Math.max(0, Math.ceil((a.endTime - serverNow()) / 1000)) : "∞";
 
     const increment = room.settings.minBidIncrement;
     const controlsDiv = document.getElementById("bid-controls");
