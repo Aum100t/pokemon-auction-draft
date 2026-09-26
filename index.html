@@ -36,6 +36,8 @@
         <select id="create-auction-reveal"><option value="visible">แสดงชื่อและรูปให้ทุกคนเห็น</option><option value="hidden">ซ่อนจนกว่าการประมูลจะจบ</option></select>
         <label class="field-label">เวลาต่อการประมูล</label>
         <select id="create-auction-timer"><option value="10" selected>10 วินาที</option><option value="20">20 วินาที</option><option value="30">30 วินาที</option><option value="60">60 วินาที</option><option value="0">ไม่จำกัดเวลา — ผู้เสนอปิดเอง</option></select>
+        <label class="field-label">เงินเริ่มต้นสำหรับประมูล</label>
+        <select id="create-auction-start-money"><option value="5000">5,000</option><option value="10000" selected>10,000</option><option value="30000">30,000</option><option value="50000">50,000</option></select>
       </div>
       <label class="field-label">รูปแบบการแข่งขัน (สูงสุด 2 เฟส)</label>
       <div class="format-row"><select id="create-phase-1"><option value="roundRobin" selected>Round Robin (มีตารางรายสัปดาห์)</option><option value="swiss">Swiss</option><option value="single">Single Elimination</option><option value="double">Double Elimination</option></select><select id="create-phase-2"><option value="">ไม่มีเฟส 2</option><option value="swiss">Swiss</option><option value="single">Single Elimination</option><option value="double">Double Elimination</option><option value="roundRobin">Round Robin</option></select></div>
@@ -137,7 +139,7 @@
       <div class="status-box"><div class="val" id="my-team-count">0/10</div><div class="lbl">โปเกม่อน</div></div>
       <div class="status-box"><div class="val" id="my-pick-status">🎫</div><div class="lbl">ตั๋วเลือก</div></div>
       <div class="status-box"><div class="val" id="my-ban-status">🚫</div><div class="lbl">ตั๋วแบน</div></div>
-      <div class="status-box"><div class="val" id="my-gift-status">🎁</div><div class="lbl">ตั๋วของขวัญ</div></div>
+      <div class="status-box"><div class="val" id="my-gift-status">🎁</div><div class="lbl">ของขวัญครั้งต่อไป</div></div>
     </div>
 
     <div class="players-strip" id="players-strip"></div>

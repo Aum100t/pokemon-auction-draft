@@ -137,6 +137,7 @@ document.getElementById("btn-create").addEventListener("click", async () => {
   const auctionSelector = document.getElementById("create-auction-selector").value;
   const auctionReveal = document.getElementById("create-auction-reveal").value;
   const timerSeconds = parseInt(document.getElementById("create-auction-timer").value);
+  const startMoney = mode === "auction" ? parseInt(document.getElementById("create-auction-start-money").value) : 0;
   const phases = [document.getElementById("create-phase-1").value, document.getElementById("create-phase-2").value].filter(Boolean);
   const bestOf = document.getElementById("create-best-of").value;
   const checkIn = document.getElementById("create-checkin").value;
@@ -156,7 +157,7 @@ document.getElementById("btn-create").addEventListener("click", async () => {
     settings: {
       maxPlayers: maxPlayers,
       mode, auctionSelector, auctionReveal, hostParticipation, phases, bestOf, checkIn, topCut, swissRounds,
-      startMoney: 10000,
+      startMoney,
       minBidIncrement: 50,
       timerSeconds,
       teamSize
@@ -165,13 +166,13 @@ document.getElementById("btn-create").addEventListener("click", async () => {
       [playerId]: {
         name: name,
         userUid: currentUser?.uid || null,
-        money: 10000,
+        money: startMoney,
         isHost: true,
         isSpectator: hostParticipation === "spectator",
         joinedAt: Date.now(),
         pickTicketUsed: false,
         banTicketUsed: false,
-        giftTicketUsed: false,
+        giftCount: 0,
         team: []
       }
     },
@@ -233,7 +234,7 @@ document.getElementById("btn-join").addEventListener("click", async () => {
     joinedAt: Date.now(),
     pickTicketUsed: false,
     banTicketUsed: false,
-    giftTicketUsed: false,
+    giftCount: 0,
     team: []
   });
 
@@ -1315,7 +1316,7 @@ async function sendGiftPokemon(memberIndex, targetPlayerId) {
     if (!targetPlayerId || targetPlayerId === currentPlayerId) return room;
 
     const player = room.players[currentPlayerId];
-    if (!player || player.isSpectator || player.giftTicketUsed) return room;
+    if (!player || player.isSpectator) return room;
 
     const target = room.players[targetPlayerId];
     if (!target || target.isSpectator) return room;
@@ -1327,9 +1328,16 @@ async function sendGiftPokemon(memberIndex, targetPlayerId) {
     const member = team[memberIndex];
     if (!member) return room;
 
+    // ครั้งแรกส่งฟรี ครั้งต่อไปจ่าย 500 แล้วเพิ่มขึ้นทีละ 500 ต่อการส่งของขวัญแต่ละครั้ง
+    const giftCount = player.giftCount || 0;
+    const cost = giftCount * 500;
+    if ((player.money || 0) < cost) return room;
+
     // เอาออกจากทีมผู้ส่ง
     team.splice(memberIndex, 1);
     player.team = team;
+
+    if (cost > 0) player.money = (player.money || 0) - cost;
 
     // เพิ่มเข้าทีมผู้รับ พร้อมระบุว่าได้มาจากของขวัญ (ล้างป้ายราคา/ตั๋ว/สุ่มเดิมออก)
     if (!target.team) target.team = [];
@@ -1347,7 +1355,7 @@ async function sendGiftPokemon(memberIndex, targetPlayerId) {
       room.pool[member.id].ownerId = targetPlayerId;
     }
 
-    player.giftTicketUsed = true;
+    player.giftCount = giftCount + 1;
     checkGameEnd(room);
     return room;
   });
@@ -1426,7 +1434,7 @@ async function startNewSeason() {
       p.team = [];
       p.pickTicketUsed = false;
       p.banTicketUsed = false;
-      p.giftTicketUsed = false;
+      p.giftCount = 0;
     });
     room.status = "waiting";
     room.pool = null;
@@ -1508,7 +1516,8 @@ function renderGame(room) {
   document.getElementById("team-tab-count").textContent = `${(me.team||[]).length}/${room.settings.teamSize}`;
   document.getElementById("my-pick-status").textContent = me.pickTicketUsed ? "❌" : "🎫";
   document.getElementById("my-ban-status").textContent = me.banTicketUsed ? "❌" : "🚫";
-  document.getElementById("my-gift-status").textContent = me.giftTicketUsed ? "❌" : "🎁";
+  const myNextGiftCost = (me.giftCount || 0) * 500;
+  document.getElementById("my-gift-status").textContent = myNextGiftCost > 0 ? `💰${myNextGiftCost.toLocaleString()}` : "ฟรี";
 
   const strip = document.getElementById("players-strip");
   strip.innerHTML = room.turnOrder.map(pid => {
@@ -1604,20 +1613,24 @@ function renderGiftBox(room, me) {
     .filter(({ p }) => (p.team?.length || 0) < teamSize);
 
   const auctionOpen = !!room.auction;
+  const nextGiftCost = (me.giftCount || 0) * 500;
+  const canAfford = (me.money || 0) >= nextGiftCost;
 
-  if (me.giftTicketUsed) {
-    statusEl.textContent = "✅ คุณใช้ตั๋วส่งของขวัญไปแล้วในทัวร์นาเมนต์นี้";
-  } else if (!myTeam.length) {
+  if (!myTeam.length) {
     statusEl.textContent = "คุณยังไม่มีโปเกม่อนในทีมให้ส่ง";
   } else if (!targets.length) {
     statusEl.textContent = "ตอนนี้ไม่มีเพื่อนที่ช่องทีมยังไม่เต็ม";
   } else if (auctionOpen) {
     statusEl.textContent = "⏳ กำลังมีการประมูลอยู่ ต้องรอให้จบก่อนถึงจะส่งของขวัญได้";
+  } else if (!canAfford) {
+    statusEl.textContent = `❌ เงินไม่พอ ของขวัญครั้งต่อไปราคา ${nextGiftCost.toLocaleString()}`;
+  } else if (nextGiftCost > 0) {
+    statusEl.textContent = `ของขวัญครั้งต่อไปมีค่าใช้จ่าย ${nextGiftCost.toLocaleString()}`;
   } else {
-    statusEl.textContent = "";
+    statusEl.textContent = "🎁 ส่งของขวัญครั้งแรกได้ฟรี!";
   }
 
-  const disabled = me.giftTicketUsed || !myTeam.length || !targets.length || auctionOpen;
+  const disabled = !myTeam.length || !targets.length || auctionOpen || !canAfford;
   sendBtn.disabled = disabled;
   pokeSelect.disabled = disabled;
   targetSelect.disabled = disabled;
@@ -1635,7 +1648,8 @@ function renderGiftBox(room, me) {
     const targetPid = targetSelect.value;
     if (isNaN(idx) || !targetPid) return;
     const mon = myTeam[idx];
-    if (!confirm(`ส่ง ${mon?.displayName || "โปเกม่อนตัวนี้"} ให้ ${room.players[targetPid]?.name || "เพื่อน"} ใช่หรือไม่? (ใช้ตั๋วของขวัญ 1 ครั้ง)`)) return;
+    const costText = nextGiftCost > 0 ? `(เสียเงิน ${nextGiftCost.toLocaleString()})` : "(ฟรี)";
+    if (!confirm(`ส่ง ${mon?.displayName || "โปเกม่อนตัวนี้"} ให้ ${room.players[targetPid]?.name || "เพื่อน"} ใช่หรือไม่? ${costText}`)) return;
     sendGiftPokemon(idx, targetPid);
   };
 }
