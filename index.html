@@ -51,6 +51,10 @@
         <option value="16">16 คน</option><option value="32">32 คน</option><option value="64">64 คน</option><option value="128">128 คน</option>
       </select>
       <button class="primary" id="btn-create">สร้างห้อง</button>
+      <p class="small-text" style="margin-top:14px;">📅 หรือสร้างเป็น "อีเวนต์สมัครล่วงหน้า" — ใช้ค่าตั้งห้องทั้งหมดด้านบน ผู้เล่นสมัครไว้ก่อน แล้วเช็คอินตอนถึงเวลา</p>
+      <input type="text" id="create-event-title" placeholder="ชื่ออีเวนต์" maxlength="40">
+      <input type="datetime-local" id="create-event-start">
+      <button class="primary" id="btn-create-event" style="background:#7e57c2;">📅 สร้างอีเวนต์สมัครล่วงหน้า</button>
     </div>
 
     <div id="form-join" class="hidden">
@@ -61,6 +65,7 @@
 
     <div id="home-error" class="error"></div>
 
+    <button class="primary" id="btn-open-events" style="background:#7e57c2;">📅 อีเวนต์สมัครล่วงหน้า</button>
     <button class="primary" id="btn-open-archives" style="background:#4dd0e1;">📚 ดูทัวร์นาเมนต์ย้อนหลัง</button>
     <button class="primary" id="btn-open-my-history" style="background:#7e57c2;">🕘 ประวัติของฉัน</button>
     <button class="primary hidden" id="btn-open-organizer-dashboard" style="background:#4dd0e1;">🧭 ศูนย์ดูแลทัวร์ของฉัน</button>
@@ -249,6 +254,15 @@
   </div>
 
   <!-- คลังทัวร์นาเมนต์: ดูย้อนหลังได้โดยไม่ต้องมีรหัสห้อง ใครก็เข้าดูได้ -->
+  <div id="screen-events" class="card hidden">
+    <div class="game-header">
+      <h2 style="margin:0;">📅 อีเวนต์สมัครล่วงหน้า</h2>
+      <button class="btn-leave-small" id="btn-events-back">⬅ กลับหน้าแรก</button>
+    </div>
+    <div id="events-list"></div>
+    <div id="event-detail" class="hidden"></div>
+  </div>
+
   <div id="screen-archives" class="card hidden">
     <div class="game-header">
       <h2 style="margin:0;">📚 คลังทัวร์นาเมนต์</h2>

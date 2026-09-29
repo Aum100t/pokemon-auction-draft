@@ -22,7 +22,11 @@
       ".read": "auth != null && auth.token.email_verified === true",
       "$roomId": {
         ".write": "auth != null && auth.token.email_verified === true && ((!data.exists() && newData.child('creatorUid').val() === auth.uid && (auth.token.email === 'chanatun73344@gmail.com' || root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() === 'owner' || root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() === 'organizer' || root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() === 'creator')) || (data.exists() && data.child('memberUids').child(auth.uid).val() === true) || auth.token.email === 'chanatun73344@gmail.com')",
-        "memberUids": { "$uid": { ".write": "auth != null && auth.uid === $uid" } },
+        "memberUids": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid"
+          }
+        },
         "adminCalls": {
           ".write": "auth != null && auth.token.email_verified === true && (auth.token.email === 'chanatun73344@gmail.com' || root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() === 'owner' || data.parent().child('creatorUid').val() === auth.uid || (root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() === 'staff' && root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('affiliation').val() === data.parent().child('affiliation').val()))"
         },
@@ -34,6 +38,23 @@
         }
       }
     },
-    "userHistory": { "$uid": { ".read": "auth != null && auth.uid === $uid", ".write": "auth != null && auth.uid === $uid" } }
+    "userHistory": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "events": {
+      ".read": "auth != null && auth.token.email_verified === true",
+      "$eventId": {
+        ".write": "auth != null && auth.token.email_verified === true && ((!data.exists() && newData.child('creatorUid').val() === auth.uid && (auth.token.email === 'chanatun73344@gmail.com' || root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() === 'owner' || root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() === 'organizer' || root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() === 'creator')) || (data.exists() && (data.child('creatorUid').val() === auth.uid || auth.token.email === 'chanatun73344@gmail.com' || root.child('admins').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() === 'owner')))",
+        "registrations": {
+          "$uid": {
+            ".write": "auth != null && auth.token.email_verified === true && auth.uid === $uid && (root.child('events').child($eventId).child('status').val() === 'open' || root.child('events').child($eventId).child('status').val() === 'checkin')",
+            ".validate": "newData.hasChildren(['uid','name','registeredAt','checkedIn']) && newData.child('uid').val() === $uid && newData.child('name').isString() && newData.child('name').val().length <= 30 && (newData.child('checkedIn').val() === false || (root.child('events').child($eventId).child('status').val() === 'checkin' && now <= root.child('events').child($eventId).child('checkinEndsAt').val()))"
+          }
+        }
+      }
+    }
   }
 }

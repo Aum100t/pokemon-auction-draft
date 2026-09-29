@@ -446,8 +446,9 @@ function tournamentStats(room) {
   }));
   return Object.values(stats).sort((a,b)=>b.points-a.points||b.wins-a.wins||a.name.localeCompare(b.name));
 }
-function shouldCheckIn(room) {
-  const t=room.tournament, policy=room.settings.checkIn; return policy === "everyRound" || (policy === "once" && t.round === 0) || (policy === "perPhase" && t.round === 0);
+function shouldCheckIn(room, roundIndex) {
+  const t=room.tournament, policy=room.settings.checkIn; const idx = roundIndex ?? t.round;
+  return policy === "everyRound" || (policy === "once" && idx === 0) || (policy === "perPhase" && idx === 0);
 }
 async function startTournament(roomId) {
   await runTransaction(ref(db,"rooms/"+roomId), room => {
@@ -469,6 +470,11 @@ async function beginNextRound() {
     let format=room.settings.phases[t.phaseIndex];
     Object.keys(t.pendingWithdrawals||{}).forEach(pid => room.players[pid].withdrawn=true); t.pendingWithdrawals={};
     let ids=(t.phaseParticipants||activePlayerIds(room)).filter(pid=>room.players[pid] && !room.players[pid].withdrawn), stats=tournamentStats(room);
+    // เก็บ "เลขรอบที่จะเปิดถัดไป" ไว้ในตัวแปรชั่วคราวก่อน ยังไม่เขียนทับ t.round จริง
+    // จนกว่าจะผ่านด่านเช็คอิน (ถ้ามี) และพร้อมสร้างรอบนั้นจริงๆ แล้วเท่านั้น
+    // (เดิมบวก t.round ก่อนเช็ค แล้ว return ตอนยังไม่มีคนเช็คอิน ทำให้เลขรอบเพี้ยนค้างถาวร
+    //  ส่งผลให้ระบบคิดว่าจบเฟสก่อนกำหนดจริง เพราะไปเทียบเลขรอบที่เพี้ยนนั้นกับจำนวนรอบที่ตั้งไว้)
+    let nextRoundIndex = t.round;
     if (t.started && t.history.length) {
       const previous=t.history[t.history.length-1];
       // รองรับ BYE จากห้องเวอร์ชันเก่า และยืนยันผลที่รายงานแล้วเมื่อโฮสต์เปิดรอบถัดไป
@@ -487,9 +493,10 @@ async function beginNextRound() {
         const winner=(format === "single" || format === "double") ? ids[0] : tournamentStats(room).filter(s=>!room.players[s.pid].withdrawn)[0]?.pid;
         completeTournamentInTransaction(room,winner); return room;
       }
-      else t.round++;
+      nextRoundIndex = t.round + 1;
     }
-    if(shouldCheckIn(room)) { const checked=Object.keys(t.checkins||{}).filter(pid=>t.checkins[pid]); if(!checked.length) {t.checkinRequired=true; return room;} ids=ids.filter(pid=>checked.includes(pid)); t.checkins={}; t.checkinRequired=false; }
+    if(shouldCheckIn(room, nextRoundIndex)) { const checked=Object.keys(t.checkins||{}).filter(pid=>t.checkins[pid]); if(!checked.length) {t.checkinRequired=true; return room;} ids=ids.filter(pid=>checked.includes(pid)); t.checkins={}; t.checkinRequired=false; }
+    t.round = nextRoundIndex;
     const matches = format === "roundRobin" ? (t.weeklySchedule?.[t.round]?.matches || []) : makePairs(ids,stats);
     // ตารางแบบ Round Robin ถูกสร้างไว้ล่วงหน้าตั้งแต่ต้นทัวร์นาเมนต์ ถ้ามีใครถอนตัว/ถูกเตะออกไปแล้ว
     // ระหว่างทาง คู่ของรอบถัดไปที่มีเขาอยู่ต้องถูกปรับให้อีกฝ่ายชนะอัตโนมัติ ไม่ใช่ปล่อยให้ยังจับคู่แข่งกันอยู่
@@ -721,13 +728,24 @@ function mountAdminChat(room) {
   document.getElementById("btn-admin-chat-send").onclick=async()=>{const text=input.value.trim();if(text){try { await push(chatRef,{name:room.players[currentPlayerId]?.name||"ผู้เล่น",text,time:Date.now(),senderId:currentPlayerId}); input.value=""; } catch(error) { console.error("admin chat failed:", error); alert("ส่งข้อความไม่สำเร็จ"); }}};
   document.getElementById("btn-call-admin").onclick=async()=>{
     const status = document.getElementById("admin-call-status");
+    const btn = document.getElementById("btn-call-admin");
+    if (btn.disabled) return; // กันกดรัว/ดับเบิลแตะ ระหว่างรอผลจากรอบก่อนหน้า
+    btn.disabled = true;
     const context = currentMatchContext(room, currentPlayerId);
-    const duplicate = Object.values(room.adminCalls || {}).some(call => call.playerId === currentPlayerId && call.matchKey === context.matchKey && call.status !== "closed");
-    if (duplicate) { status.textContent = "มีคำขอสำหรับคู่นี้อยู่แล้ว"; return; }
+    // ใช้คีย์คงที่ต่อผู้เล่น+คู่แข่งขัน (ไม่ใช้ push ซึ่งสุ่มคีย์ใหม่ทุกครั้ง) เพื่อให้ต่อให้กดรัวกี่ครั้ง
+    // ก็จะยังเป็นคำขอเดียวกันเสมอ ไม่สร้างรายการซ้ำซ้อนในศูนย์ดูแลทัวร์ของแอดมิน
+    const callRef = ref(db, `rooms/${currentRoomId}/adminCalls/${currentPlayerId}_${context.matchKey}`);
     try {
-      await push(ref(db,`rooms/${currentRoomId}/adminCalls`),{playerId:currentPlayerId,name:room.players[currentPlayerId]?.name||"ผู้เล่น",time:Date.now(),status:"open",...context});
-      status.textContent = `ส่งคำขอเรียกแอดมินแล้ว (${context.matchLabel})`;
+      const existingSnap = await get(callRef);
+      const existing = existingSnap.exists() ? existingSnap.val() : null;
+      if (existing && existing.status !== "closed") {
+        status.textContent = "มีคำขอสำหรับคู่นี้อยู่แล้ว";
+      } else {
+        await set(callRef, {playerId:currentPlayerId,name:room.players[currentPlayerId]?.name||"ผู้เล่น",time:Date.now(),status:"open",...context});
+        status.textContent = `ส่งคำขอเรียกแอดมินแล้ว (${context.matchLabel})`;
+      }
     } catch (error) { console.error("admin call failed:", error); status.textContent = "ส่งคำขอไม่สำเร็จ กรุณาลองใหม่"; }
+    finally { btn.disabled = false; }
   };
 }
 async function finishTournament(room) {
@@ -756,7 +774,7 @@ function renderTournament(room) {
   if(room.status === "tournament") mountAdminChat(room);
   syncAdminCallDrawer(room);
   const editor=document.getElementById("team-profile-input"); editor?.closest(".team-editor")?.classList.add("hidden");
-  const check=document.getElementById("tournament-checkin"), need=shouldCheckIn(room)&&(!current||current.matches.every(m=>m.winnerId)), checkedCount=Object.keys(t.checkins||{}).filter(pid=>t.checkins[pid]).length, eligibleCount=activePlayerIds(room).length; check.innerHTML=need?`<div class="checkin-content"><span class="checkin-icon">✅</span><div><b>เช็คอินสำหรับรอบถัดไป</b><span class="small-text">${checkedCount}/${eligibleCount} คนเช็คอินแล้ว • ${room.settings.checkIn}</span></div>${amSpectator?"<span class=\"small-text\">ผู้สังเกตการณ์ไม่ต้องเช็คอิน</span>":`<button id="btn-checkin" ${t.checkins?.[currentPlayerId]?"disabled":""}>${t.checkins?.[currentPlayerId]?"เช็คอินแล้ว ✓":"เช็คอิน"}</button>`}</div>${t.checkinRequired?"<p class=\"checkin-warning\">รอผู้เล่นเช็คอินก่อนเริ่มรอบถัดไป</p>":""}`:""; document.getElementById("btn-checkin")?.addEventListener("click",()=>tournamentAction("checkin"));
+  const check=document.getElementById("tournament-checkin"), need=shouldCheckIn(room, t.round + 1)&&(!current||current.matches.every(m=>m.winnerId)), checkedCount=Object.keys(t.checkins||{}).filter(pid=>t.checkins[pid]).length, eligibleCount=activePlayerIds(room).length; check.innerHTML=need?`<div class="checkin-content"><span class="checkin-icon">✅</span><div><b>เช็คอินสำหรับรอบถัดไป</b><span class="small-text">${checkedCount}/${eligibleCount} คนเช็คอินแล้ว • ${room.settings.checkIn}</span></div>${amSpectator?"<span class=\"small-text\">ผู้สังเกตการณ์ไม่ต้องเช็คอิน</span>":`<button id="btn-checkin" ${t.checkins?.[currentPlayerId]?"disabled":""}>${t.checkins?.[currentPlayerId]?"เช็คอินแล้ว ✓":"เช็คอิน"}</button>`}</div>${t.checkinRequired?"<p class=\"checkin-warning\">รอผู้เล่นเช็คอินก่อนเริ่มรอบถัดไป</p>":""}`:""; document.getElementById("btn-checkin")?.addEventListener("click",()=>tournamentAction("checkin"));
   const pairs=document.getElementById("tournament-pairings");
   if(t.championId) pairs.innerHTML=`<div class="match-card"><h3>👑 แชมป์: ${escapeHtml(room.players[t.championId]?.name||"-")}</h3></div>`;
   else if(!current) { pairs.innerHTML=`<p class="small-text">กำลังสร้างคู่แข่งขันรอบแรก...</p>`; ensureFirstTournamentRound(); }
@@ -1535,7 +1553,9 @@ function renderGame(room) {
   if (room.auction) {
     aucBox.classList.remove("hidden");
     const a = room.auction;
-    const revealAuctionPokemon = room.settings?.auctionReveal !== "hidden";
+    // สปอยล์เตอร์ (spectator) รวมถึงคนสร้างห้องที่ตั้งตัวเองเป็นผู้สังเกตการณ์ ควรเห็นโปเกม่อนที่กำลังประมูลอยู่เสมอ
+    // แม้จะตั้งโหมดซ่อนตัวไว้ ส่วนผู้เล่นที่แข่งขันจริงยังคงถูกซ่อนตามปกติ
+    const revealAuctionPokemon = room.settings?.auctionReveal !== "hidden" || amSpectator;
     document.getElementById("auc-img").src = revealAuctionPokemon ? a.sprite : "";
     document.getElementById("auc-img").alt = revealAuctionPokemon ? a.displayName : "โปเกม่อนลับ";
     document.getElementById("auc-img").classList.toggle("auction-secret-image", !revealAuctionPokemon);
@@ -1752,7 +1772,7 @@ function renderPool(room, isMyTurn, me) {
 
     const card = document.createElement("div");
     card.className = `poke-card status-${poke.status}`;
-    const conceal = hidePokemon && (poke.status === "auctioning" || (poke.status === "available" && !canChoosePokemon));
+    const conceal = hidePokemon && !amSpectator && (poke.status === "auctioning" || (poke.status === "available" && !canChoosePokemon));
     let html = conceal
       ? '<div class="secret-pokemon">❓</div><div class="name">โปเกม่อนลับ</div>'
       : `<img src="${poke.sprite}" alt=""><div class="name">${poke.displayName}${poke.isMega ? '<br><span class="mega-tag">MEGA</span>' : ''}</div>`;
@@ -2197,6 +2217,7 @@ function hideAllTopScreens() {
   screenMyHistory.classList.add("hidden");
   screenArchiveDetail.classList.add("hidden");
   screenSpectate.classList.add("hidden");
+  document.getElementById("screen-events")?.classList.add("hidden");
 }
 
 async function openArchivesList() {
@@ -2952,4 +2973,328 @@ function renderArchiveMatchHistory(archive) {
   }));
   const standings = Object.values(stats).sort((a,b) => b.points-a.points || b.wins-a.wins || a.name.localeCompare(b.name));
   document.getElementById("adet-standings-table").innerHTML = `<tr><th>#</th><th>ผู้เล่น</th><th>แข่ง</th><th>ชนะ</th><th>แพ้</th><th>แต้ม</th></tr>${standings.map((s,i) => `<tr><td>${i+1}</td><td>${escapeHtml(s.name)}</td><td>${s.played}</td><td>${s.wins}</td><td>${s.losses}</td><td><b>${s.points}</b></td></tr>`).join("")}`;
+}
+// ---------- อีเวนต์สมัครล่วงหน้า + เช็คอิน ----------
+// events/{id}: { title, hostName, creatorUid, startAt, capacity, config, status: open|checkin|started,
+//                checkinMinutes, checkinEndsAt, roomId, playerMap, registrations/{uid} }
+const screenEvents = document.getElementById("screen-events");
+let eventsCache = {};
+let eventsUnsub = null;
+let openEventId = null;
+
+function fmtEventDate(ms) {
+  return new Date(ms).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" });
+}
+function fmtCountdown(ms) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+function eventStatusLabel(ev) {
+  if (ev.status === "checkin") return "🟢 กำลังเช็คอิน";
+  if (ev.status === "started") return "🏁 เริ่มแล้ว";
+  return "📝 เปิดรับสมัคร";
+}
+function isEventHost(ev) {
+  return !!currentUser && (currentUser.uid === ev.creatorUid || isOwner);
+}
+// ผู้ที่ได้ที่นั่งจริง = คนที่เช็คอินแล้ว เรียงตามเวลาสมัคร ตัดที่จำนวน capacity (ที่เหลือเป็นสำรอง)
+function eventSortedRegs(ev) {
+  return Object.values(ev.registrations || {}).sort((a, b) => (a.registeredAt || 0) - (b.registeredAt || 0));
+}
+function eventSeatUids(ev) {
+  return new Set(eventSortedRegs(ev).filter(r => r.checkedIn).slice(0, ev.capacity).map(r => r.uid));
+}
+
+function readRoomFormForEvent() {
+  const mode = document.getElementById("create-room-mode").value;
+  const hostParticipation = document.getElementById("create-host-participation").value;
+  const maxPlayers = parseInt(document.getElementById("create-max-players").value);
+  return {
+    hostName: document.getElementById("create-name").value.trim(),
+    hostParticipation,
+    maxPlayers,
+    settings: {
+      maxPlayers,
+      mode,
+      auctionSelector: document.getElementById("create-auction-selector").value,
+      auctionReveal: document.getElementById("create-auction-reveal").value,
+      hostParticipation,
+      phases: [document.getElementById("create-phase-1").value, document.getElementById("create-phase-2").value].filter(Boolean),
+      bestOf: document.getElementById("create-best-of").value,
+      checkIn: document.getElementById("create-checkin").value,
+      topCut: parseInt(document.getElementById("create-top-cut").value),
+      swissRounds: parseInt(document.getElementById("create-swiss-rounds").value),
+      startMoney: mode === "auction" ? parseInt(document.getElementById("create-auction-start-money").value) : 0,
+      minBidIncrement: 50,
+      timerSeconds: parseInt(document.getElementById("create-auction-timer").value),
+      teamSize: mode === "auction" ? parseInt(document.getElementById("create-auction-team-size").value) : 6
+    }
+  };
+}
+
+document.getElementById("btn-create-event").addEventListener("click", async () => {
+  if (!canCreateRoom()) { homeError.textContent = "คุณไม่มีสิทธิ์สร้างอีเวนต์ กรุณาเข้าสู่ระบบด้วยบัญชีที่ได้รับสิทธิ์"; return; }
+  const title = document.getElementById("create-event-title").value.trim();
+  const startStr = document.getElementById("create-event-start").value;
+  const cfg = readRoomFormForEvent();
+  if (!cfg.hostName) { homeError.textContent = "กรุณากรอกชื่อของคุณ"; return; }
+  if (!title) { homeError.textContent = "กรุณากรอกชื่ออีเวนต์"; return; }
+  const startAt = startStr ? new Date(startStr).getTime() : NaN;
+  if (!startAt || isNaN(startAt)) { homeError.textContent = "กรุณาเลือกวันและเวลาเริ่มอีเวนต์"; return; }
+  // ที่นั่งสำหรับผู้สมัคร = จำนวนผู้เล่นสูงสุด (หักที่ของโฮสต์ถ้าโฮสต์ร่วมเล่น)
+  const capacity = Math.max(1, cfg.maxPlayers - (cfg.hostParticipation === "play" ? 1 : 0));
+  const eventId = generateRoomCode();
+  try {
+    await set(ref(db, "events/" + eventId), {
+      title, hostName: cfg.hostName, creatorUid: currentUser.uid, creatorEmail: currentUser.email || null,
+      affiliation: myAffiliation || null, startAt, capacity, config: cfg.settings,
+      status: "open", checkinMinutes: 10, checkinEndsAt: null, roomId: null, createdAt: serverNow()
+    });
+    homeError.textContent = "";
+    openEventsScreen(eventId);
+  } catch (e) {
+    console.error("create event error:", e);
+    homeError.textContent = "สร้างอีเวนต์ไม่สำเร็จ (อาจยังไม่ได้อัปเดต Database Rules ส่วน events)";
+  }
+});
+
+function openEventsScreen(eventId = null) {
+  if (!currentUser) { homeError.textContent = "กรุณาเข้าสู่ระบบก่อนดูอีเวนต์"; return; }
+  hideAllTopScreens();
+  screenEvents.classList.remove("hidden");
+  openEventId = eventId;
+  if (eventsUnsub) eventsUnsub();
+  document.getElementById("events-list").innerHTML = '<p class="small-text">กำลังโหลด...</p>';
+  eventsUnsub = onValue(ref(db, "events"), (snap) => {
+    eventsCache = snap.val() || {};
+    renderEventsScreen();
+  }, (err) => {
+    console.error("events read error:", err);
+    document.getElementById("events-list").innerHTML = '<p class="error">โหลดอีเวนต์ไม่สำเร็จ (ต้องยืนยันอีเมลและอัปเดต Database Rules)</p>';
+  });
+}
+function closeEventsScreen() {
+  if (eventsUnsub) { eventsUnsub(); eventsUnsub = null; }
+  openEventId = null;
+  hideAllTopScreens();
+  screenHome.classList.remove("hidden");
+}
+document.getElementById("btn-open-events").addEventListener("click", () => openEventsScreen());
+document.getElementById("btn-events-back").addEventListener("click", closeEventsScreen);
+
+function renderEventsScreen() {
+  const listEl = document.getElementById("events-list");
+  const detailEl = document.getElementById("event-detail");
+  if (openEventId) {
+    listEl.classList.add("hidden");
+    detailEl.classList.remove("hidden");
+    renderEventDetail();
+    return;
+  }
+  detailEl.classList.add("hidden");
+  listEl.classList.remove("hidden");
+  const now = Date.now();
+  const evs = Object.entries(eventsCache)
+    .filter(([, ev]) => !(ev.status === "started" && (ev.startAt || 0) < now - 86400000))
+    .sort((a, b) => (a[1].startAt || 0) - (b[1].startAt || 0));
+  listEl.innerHTML = evs.length ? evs.map(([id, ev]) => {
+    const regCount = Object.keys(ev.registrations || {}).length;
+    return `<div class="match-card"><b>${escapeHtml(ev.title)}</b> <span class="badge">${eventStatusLabel(ev)}</span>
+      <p class="small-text">🗓 ${fmtEventDate(ev.startAt)} • โดย ${escapeHtml(ev.hostName || "-")} • สมัครแล้ว ${regCount}/${ev.capacity}</p>
+      <button class="btn-leave-small" data-open-event="${id}">ดูรายละเอียด</button></div>`;
+  }).join("") : '<p class="small-text">ยังไม่มีอีเวนต์ที่เปิดอยู่</p>';
+  listEl.querySelectorAll("[data-open-event]").forEach(btn => btn.addEventListener("click", () => {
+    openEventId = btn.dataset.openEvent;
+    renderEventsScreen();
+  }));
+}
+
+function renderEventDetail() {
+  const box = document.getElementById("event-detail");
+  const prevName = document.getElementById("ev-reg-name")?.value;
+  const prevTeam = document.activeElement?.id === "ev-team-input" ? document.getElementById("ev-team-input").value : null;
+  const ev = eventsCache[openEventId];
+  const backBtn = '<button class="btn-leave-small" data-ev-act="back">⬅ รายการอีเวนต์</button>';
+  if (!ev) { box.innerHTML = `${backBtn}<p class="small-text">ไม่พบอีเวนต์นี้ (อาจถูกลบแล้ว)</p>`; bindEventActions(box); return; }
+
+  const uid = currentUser?.uid;
+  const host = isEventHost(ev);
+  const regs = eventSortedRegs(ev);
+  const mine = uid ? ev.registrations?.[uid] : null;
+  const seats = eventSeatUids(ev);
+  const remaining = (ev.checkinEndsAt || 0) - serverNow();
+  const checkinOpen = ev.status === "checkin" && remaining > 0;
+  const myPid = uid ? ev.playerMap?.[uid] : null;
+  const requiresTeamSheet = ev.config?.mode !== "auction";
+
+  const rows = regs.map((r, i) => {
+    let state;
+    if (r.checkedIn) state = seats.has(r.uid) ? "✅ เช็คอินแล้ว" : "🕓 สำรอง (ที่นั่งเต็ม)";
+    else state = ev.status === "open" && i >= ev.capacity ? "🕓 สำรอง" : "⏳ ยังไม่เช็คอิน";
+    const teamBadge = requiresTeamSheet ? (hasSubmittedTeamSheet(r) ? ' <span class="badge team-sheet-ready">📄 ส่งทีมแล้ว</span>' : ' <span class="badge team-sheet-missing">⏳ รอทีม</span>') : "";
+    const kick = host && ev.status !== "started" ? `<button class="btn-kick" data-ev-act="kick" data-uid="${escapeHtml(r.uid)}">ลบ</button>` : "";
+    return `<li><span>${i + 1}. ${escapeHtml(r.name)}${r.uid === ev.creatorUid ? ' <span class="badge">HOST</span>' : ""}${teamBadge}</span> <span class="small-text">${state}</span>${kick}</li>`;
+  }).join("") || '<li class="small-text">ยังไม่มีผู้สมัคร</li>';
+
+  let playerArea = "";
+  if (ev.status === "started") {
+    playerArea = myPid && ev.roomId
+      ? `<button class="primary" data-ev-act="enter">🚪 เข้าห้อง (${escapeHtml(ev.roomId)})</button>`
+      : `<p class="small-text">อีเวนต์เริ่มแล้ว${mine ? " — คุณไม่ได้เช็คอินทันเวลา จึงไม่ได้อยู่ในห้อง" : ""}</p>`;
+  } else if (!mine) {
+    playerArea = `<input type="text" id="ev-reg-name" placeholder="ชื่อที่จะใช้ในเกม" maxlength="20" value="${escapeHtml(prevName ?? currentUser?.displayName ?? "")}">
+      <button class="primary" data-ev-act="register">✍️ สมัครเข้าร่วม</button>`;
+  } else if (ev.status === "checkin") {
+    playerArea = mine.checkedIn
+      ? '<p class="small-text">✅ คุณเช็คอินแล้ว รอโฮสต์เริ่มห้อง</p>'
+      : `<button class="primary" id="ev-checkin-btn" data-ev-act="checkin" ${checkinOpen ? "" : "disabled"}>✅ เช็คอิน</button>`;
+  } else {
+    playerArea = `<p class="small-text">✅ คุณสมัครแล้ว — รอโฮสต์เปิดเช็คอินตอนถึงเวลา</p><button class="btn-leave-small" data-ev-act="unregister">ยกเลิกการสมัคร</button>`;
+  }
+
+  // ให้ผู้สมัครส่ง Team Sheet ล่วงหน้าได้เลยตั้งแต่ตอนสมัคร (ก่อนถึงเวลาแข่ง) ไม่ต้องรอเข้าห้องก่อน
+  if (mine && ev.status !== "started" && requiresTeamSheet) {
+    const sheet = mine.teamSheet || teamSheetWithoutEvs(mine.teamText);
+    playerArea += `<section class="team-editor">
+      <h3>📝 ส่ง Team Sheet ล่วงหน้า</h3>
+      <p class="small-text">วางโค้ดทีมจาก Pokémon Showdown ได้เลย ไม่ต้องรอเข้าห้อง ระบบจะไม่นำบรรทัด EVs ไปแสดง</p>
+      <textarea id="ev-team-input" rows="14" placeholder="วางโค้ดทีมจาก Pokémon Showdown ที่นี่">${escapeHtml(prevTeam ?? mine.teamText ?? "")}</textarea>
+      <button class="primary" data-ev-act="save-team">ส่ง Team Sheet</button>
+      <pre class="team-sheet-preview${sheet ? "" : " hidden"}">${escapeHtml(sheet)}</pre>
+    </section>`;
+  }
+
+  let hostArea = "";
+  if (host) {
+    if (ev.status === "open") {
+      hostArea = `<div class="match-card"><b>ควบคุมอีเวนต์ (โฮสต์)</b>
+        <p class="small-text">เมื่อถึงเวลา กดเริ่มเพื่อเปิดเช็คอิน ผู้สมัครต้องกดเช็คอินภายในเวลาที่กำหนด</p>
+        <select id="ev-checkin-min"><option value="5">เช็คอิน 5 นาที</option><option value="10" selected>เช็คอิน 10 นาที</option><option value="15">เช็คอิน 15 นาที</option></select>
+        <button class="primary" data-ev-act="start-checkin">▶ เริ่ม / เปิดเช็คอิน</button></div>`;
+    } else if (ev.status === "checkin") {
+      const checkedCount = regs.filter(r => r.checkedIn && r.uid !== ev.creatorUid).length;
+      hostArea = `<div class="match-card"><b>ควบคุมอีเวนต์ (โฮสต์)</b>
+        <p class="small-text">เช็คอินแล้ว ${checkedCount} คน • ${checkinOpen ? "หมดเวลาใน <b id=\"ev-countdown\">" + fmtCountdown(remaining) + "</b>" : "หมดเวลาเช็คอินแล้ว"}</p>
+        <button class="primary" data-ev-act="create-room">🏁 สร้างห้องจากผู้ที่เช็คอิน</button></div>`;
+    }
+    hostArea += '<button class="btn-kick" data-ev-act="delete" style="margin:8px 0;">🗑 ลบอีเวนต์</button>';
+  }
+
+  const countdownForPlayers = ev.status === "checkin" && !host
+    ? `<p class="small-text">⏱ เวลาเช็คอินคงเหลือ <b id="ev-countdown">${fmtCountdown(remaining)}</b></p>` : "";
+
+  box.innerHTML = `${backBtn}
+    <h3 style="margin:10px 0 2px;">${escapeHtml(ev.title)} <span class="badge">${eventStatusLabel(ev)}</span></h3>
+    <p class="small-text">🗓 ${fmtEventDate(ev.startAt)} • โฮสต์: ${escapeHtml(ev.hostName || "-")} • รับ ${ev.capacity} ที่นั่ง</p>
+    ${countdownForPlayers}${playerArea}${hostArea}
+    <h4>รายชื่อผู้สมัคร (${regs.length})</h4><ul class="player-list">${rows}</ul>`;
+  bindEventActions(box);
+}
+
+// ตัวนับเวลาเช็คอิน อัปเดตเฉพาะตัวเลข ไม่ render ใหม่ (กันช่องพิมพ์ชื่อถูกล้าง)
+setInterval(() => {
+  if (!openEventId || screenEvents.classList.contains("hidden")) return;
+  const ev = eventsCache[openEventId];
+  if (!ev || ev.status !== "checkin") return;
+  const remaining = (ev.checkinEndsAt || 0) - serverNow();
+  const cd = document.getElementById("ev-countdown");
+  if (cd) cd.textContent = fmtCountdown(remaining);
+  const btn = document.getElementById("ev-checkin-btn");
+  if (btn && remaining <= 0) btn.disabled = true;
+}, 1000);
+
+function bindEventActions(box) {
+  box.querySelectorAll("[data-ev-act]").forEach(el => el.addEventListener("click", () => handleEventAction(el.dataset.evAct, el)));
+}
+
+async function handleEventAction(act, el) {
+  if (act === "back") { openEventId = null; renderEventsScreen(); return; }
+  const ev = eventsCache[openEventId];
+  if (!ev || !currentUser) return;
+  const uid = currentUser.uid;
+  const evRef = ref(db, "events/" + openEventId);
+  try {
+    if (act === "register") {
+      const name = document.getElementById("ev-reg-name").value.trim();
+      if (!name) { alert("กรุณากรอกชื่อที่จะใช้ในเกม"); return; }
+      await set(child(evRef, "registrations/" + uid), { uid, name, registeredAt: serverNow(), checkedIn: false });
+    } else if (act === "unregister") {
+      if (!confirm("ยกเลิกการสมัครอีเวนต์นี้ใช่หรือไม่?")) return;
+      await set(child(evRef, "registrations/" + uid), null);
+    } else if (act === "checkin") {
+      const mine = ev.registrations?.[uid];
+      if (!mine) return;
+      if (serverNow() > (ev.checkinEndsAt || 0)) { alert("หมดเวลาเช็คอินแล้ว"); return; }
+      await set(child(evRef, "registrations/" + uid), { ...mine, checkedIn: true });
+    } else if (act === "save-team") {
+      const mine = ev.registrations?.[uid];
+      if (!mine) return;
+      const teamText = document.getElementById("ev-team-input")?.value.trim() || "";
+      const teamSheet = teamSheetWithoutEvs(teamText);
+      await update(child(evRef, "registrations/" + uid), { teamText: teamText || null, teamSheet: teamSheet || null });
+    } else if (act === "enter") {
+      const pid = ev.playerMap?.[uid];
+      if (!pid || !ev.roomId) return;
+      await onDisconnect(ref(db, `rooms/${ev.roomId}/players/${pid}`)).remove();
+      hideAllTopScreens();
+      if (eventsUnsub) { eventsUnsub(); eventsUnsub = null; }
+      enterLobby(ev.roomId, pid, false);
+    } else if (act === "start-checkin") {
+      if (!isEventHost(ev)) return;
+      const minutes = parseInt(document.getElementById("ev-checkin-min").value);
+      await update(evRef, { status: "checkin", checkinMinutes: minutes, checkinEndsAt: serverNow() + minutes * 60000 });
+    } else if (act === "kick") {
+      if (!isEventHost(ev)) return;
+      if (!confirm("ลบผู้สมัครคนนี้ออกจากอีเวนต์ใช่หรือไม่?")) return;
+      await set(child(evRef, "registrations/" + el.dataset.uid), null);
+    } else if (act === "delete") {
+      if (!isEventHost(ev) || !confirm("ลบอีเวนต์นี้ทิ้งใช่หรือไม่?")) return;
+      openEventId = null;
+      await set(evRef, null);
+    } else if (act === "create-room") {
+      await createRoomFromEvent(openEventId);
+    }
+  } catch (e) {
+    console.error("event action error:", act, e);
+    alert("ทำรายการไม่สำเร็จ (เช่น หมดเวลาเช็คอิน หรือสิทธิ์ไม่พอ) กรุณาลองใหม่");
+  }
+}
+
+async function createRoomFromEvent(eventId) {
+  const ev = eventsCache[eventId];
+  if (!ev || !isEventHost(ev) || ev.status === "started") return;
+  const cfg = ev.config;
+  const checked = eventSortedRegs(ev).filter(r => r.checkedIn && r.uid !== ev.creatorUid).slice(0, ev.capacity);
+  const remaining = (ev.checkinEndsAt || 0) - serverNow();
+  const msg = `สร้างห้องพร้อมผู้เล่นที่เช็คอินแล้ว ${checked.length} คน${ev.status === "checkin" && remaining > 0 ? " (ยังไม่หมดเวลาเช็คอิน คนที่ยังไม่เช็คอินจะไม่ได้อยู่ในห้อง)" : ""} ใช่หรือไม่?`;
+  if (!confirm(msg)) return;
+
+  const roomId = generateRoomCode();
+  const hostPid = generatePlayerId();
+  const baseMoney = cfg.startMoney || 0;
+  const mkPlayer = (name, userUid, isHostP, isSpectator, teamText, teamSheet) => ({
+    name, userUid, money: baseMoney, isHost: isHostP, isSpectator, joinedAt: Date.now(),
+    pickTicketUsed: false, banTicketUsed: false, giftCount: 0, team: [],
+    teamText: teamText || null, teamSheet: teamSheet || null
+  });
+  const players = { [hostPid]: mkPlayer(ev.hostName, currentUser.uid, true, cfg.hostParticipation === "spectator") };
+  const memberUids = { [currentUser.uid]: true };
+  const playerMap = {};
+  checked.forEach(r => {
+    const pid = generatePlayerId();
+    players[pid] = mkPlayer(r.name, r.uid, false, false, r.teamText, r.teamSheet);
+    memberUids[r.uid] = true;
+    playerMap[r.uid] = pid;
+  });
+
+  await set(ref(db, "rooms/" + roomId), {
+    hostId: hostPid, creatorUid: currentUser.uid, creatorEmail: currentUser.email || null,
+    affiliation: ev.affiliation || myAffiliation || null, status: "waiting", eventId,
+    settings: cfg, players, memberUids, createdAt: Date.now()
+  });
+  await update(ref(db, "events/" + eventId), { status: "started", roomId, playerMap });
+  onDisconnect(ref(db, `rooms/${roomId}/players/${hostPid}`)).remove();
+  if (eventsUnsub) { eventsUnsub(); eventsUnsub = null; }
+  hideAllTopScreens();
+  enterLobby(roomId, hostPid, true);
 }
