@@ -521,7 +521,17 @@ async function advanceTournamentPhase() {
     Object.keys(t.pendingWithdrawals||{}).forEach(pid=>room.players[pid].withdrawn=true); t.pendingWithdrawals={};
     const cut=room.settings.topCut||activePlayerIds(room).length;
     t.phaseParticipants=tournamentStats(room).filter(s=>!room.players[s.pid].withdrawn).slice(0,cut).map(s=>s.pid);
-    t.phaseIndex++; t.round=0; t.history=[]; t.started=false; t.checkins={}; t.phaseComplete=false; return room;
+    t.phaseIndex++; t.round=0; t.history=[]; t.started=false; t.checkins={}; t.checkinRequired=false; t.phaseComplete=false; t.losses={};
+    // สร้างคู่แข่งขันรอบแรกของเฟสใหม่ทันทีในธุรกรรมเดียวกันนี้เลย แทนที่จะรอให้หน้าจอของโฮสต์
+    // เรนเดอร์ใหม่แล้วค่อยยิงคำสั่งสร้างรอบแยกต่างหากทีหลัง (ซึ่งถ้าหน้าจอโฮสต์ไม่ได้เปิดอยู่พอดี
+    // หรือมีปัญหาใดๆ ระหว่างทาง จะทำให้ "กดปิดเฟสแล้วไม่มีอะไรเกิดขึ้น" ค้างอยู่แบบนี้)
+    const newFormat=room.settings.phases[t.phaseIndex]||"swiss";
+    const ids=t.phaseParticipants;
+    const weeklySchedule = newFormat === "roundRobin" ? generateRoundRobinSchedule(ids) : [];
+    t.weeklySchedule = weeklySchedule;
+    t.history=[{phaseIndex:t.phaseIndex, round:1, format:newFormat, matches: newFormat === "roundRobin" ? (weeklySchedule[0]?.matches||[]) : makePairs(ids, [])}];
+    t.started=true;
+    return room;
   });
 }
 async function tournamentAction(action, payload={}) {
@@ -761,6 +771,16 @@ async function saveMyTournamentHistory(room) {
   await update(ref(db,`rooms/${currentRoomId}/historySaved/${currentPlayerId}`),true);
 }
 function renderTournament(room) {
+  try {
+    renderTournamentInner(room);
+  } catch (error) {
+    // กันหน้าจอขาวโล่งไม่มีอะไรขึ้นเลยเวลามีบั๊กไม่คาดคิด อย่างน้อยให้เห็นข้อความแจ้ง และ error ไปลง console เพื่อตามแก้ได้
+    console.error("renderTournament failed:", error);
+    const pairs = document.getElementById("tournament-pairings");
+    if (pairs) pairs.innerHTML = '<p class="small-text">⚠️ เกิดข้อผิดพลาดระหว่างแสดงผลหน้านี้ ลองรีเฟรชหน้าเว็บ ถ้ายังไม่หายกรุณาแจ้งผู้ดูแลระบบ</p>';
+  }
+}
+function renderTournamentInner(room) {
   // รองรับห้องเก่าที่สร้างก่อนเพิ่มตัวเลือกรูปแบบการแข่งขัน
   room.settings={maxPlayers:4,mode:"normal",phases:["swiss"],bestOf:"BO1",checkIn:"once",...room.settings,phases:room.settings?.phases?.length?room.settings.phases:["swiss"]};
   const t=room.tournament||initialTournament(room), phase=room.settings.phases[t.phaseIndex]||"swiss", stats=tournamentStats(room), current=t.history[t.history.length-1];
