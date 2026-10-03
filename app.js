@@ -521,6 +521,9 @@ async function advanceTournamentPhase() {
     Object.keys(t.pendingWithdrawals||{}).forEach(pid=>room.players[pid].withdrawn=true); t.pendingWithdrawals={};
     const cut=room.settings.topCut||activePlayerIds(room).length;
     t.phaseParticipants=tournamentStats(room).filter(s=>!room.players[s.pid].withdrawn).slice(0,cut).map(s=>s.pid);
+    // เก็บประวัติแมตช์ของเฟสที่เพิ่งจบไว้ใน phaseHistory ก่อนเคลียร์ history สำหรับเฟสใหม่
+    // (ไม่งั้นข้อมูลรอบของเฟส 1 จะหายไปถาวรทันทีที่กดปิดเฟส ทำให้ดูประวัติย้อนหลังไม่ได้)
+    t.phaseHistory=[...(t.phaseHistory||[]), ...t.history];
     t.phaseIndex++; t.round=0; t.history=[]; t.started=false; t.checkins={}; t.checkinRequired=false; t.phaseComplete=false; t.losses={};
     // สร้างคู่แข่งขันรอบแรกของเฟสใหม่ทันทีในธุรกรรมเดียวกันนี้เลย แทนที่จะรอให้หน้าจอของโฮสต์
     // เรนเดอร์ใหม่แล้วค่อยยิงคำสั่งสร้างรอบแยกต่างหากทีหลัง (ซึ่งถ้าหน้าจอโฮสต์ไม่ได้เปิดอยู่พอดี
@@ -2384,7 +2387,7 @@ function renderArchiveDetail(archive) {
 
   const league = archive.league;
   const leagueSection = document.getElementById("adet-league-section");
-  const tournamentHistory = archive.tournament?.history || [];
+  const tournamentHistory = [...(archive.tournament?.phaseHistory || []), ...(archive.tournament?.history || [])];
   if (tournamentHistory.length) {
     renderArchiveMatchHistory(archive);
   } else if (!league || !league.weeks || !league.weeks.length) {
@@ -2970,7 +2973,8 @@ function archiveTeamSheetHtml(player, pid, archive, editing) {
 }
 
 function renderArchiveMatchHistory(archive) {
-  const history = archive.tournament?.history || [];
+  // รวมประวัติของทุกเฟส (phaseHistory ของเฟสก่อนหน้า + history ของเฟสปัจจุบัน/เฟสสุดท้าย) ให้ครบทุกรอบ
+  const history = [...(archive.tournament?.phaseHistory || []), ...(archive.tournament?.history || [])];
   const section = document.getElementById("adet-league-section");
   const stats = Object.fromEntries(Object.entries(archive.players || {}).filter(([, p]) => !p.isSpectator).map(([pid, p]) => [pid, { pid, name:p.name, wins:0, losses:0, played:0, points:0 }]));
   history.forEach(round => (round.matches || []).forEach(match => {
