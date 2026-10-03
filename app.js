@@ -2972,7 +2972,7 @@ function archiveTeamSheetHtml(player, pid, archive, editing) {
 function renderArchiveMatchHistory(archive) {
   const history = archive.tournament?.history || [];
   const section = document.getElementById("adet-league-section");
-  const stats = Object.fromEntries(Object.entries(archive.players || {}).filter(([, p]) => !p.isSpectator).map(([pid, p]) => [pid, { name:p.name, wins:0, losses:0, played:0, points:0 }]));
+  const stats = Object.fromEntries(Object.entries(archive.players || {}).filter(([, p]) => !p.isSpectator).map(([pid, p]) => [pid, { pid, name:p.name, wins:0, losses:0, played:0, points:0 }]));
   history.forEach(round => (round.matches || []).forEach(match => {
     if (!match.winnerId || !stats[match.winnerId]) return;
     if (match.isBye) {
@@ -3001,7 +3001,9 @@ function renderArchiveMatchHistory(archive) {
     section.querySelector("#adet-history-round-content").innerHTML = renderRound(roundIndex);
   }));
   const standings = Object.values(stats).sort((a,b) => b.points-a.points || b.wins-a.wins || a.name.localeCompare(b.name));
-  document.getElementById("adet-standings-table").innerHTML = `<tr><th>#</th><th>ผู้เล่น</th><th>แข่ง</th><th>ชนะ</th><th>แพ้</th><th>แต้ม</th></tr>${standings.map((s,i) => `<tr><td>${i+1}</td><td>${escapeHtml(s.name)}</td><td>${s.played}</td><td>${s.wins}</td><td>${s.losses}</td><td><b>${s.points}</b></td></tr>`).join("")}`;
+  const standingsTable = document.getElementById("adet-standings-table");
+  standingsTable.innerHTML = `<tr><th>#</th><th>ผู้เล่น</th><th>แข่ง</th><th>ชนะ</th><th>แพ้</th><th>แต้ม</th><th>ทีม</th></tr>${standings.map((s,i) => `<tr><td>${i+1}</td><td>${escapeHtml(s.name)}</td><td>${s.played}</td><td>${s.wins}</td><td>${s.losses}</td><td><b>${s.points}</b></td><td>${teamPreviewHtml(archive.players?.[s.pid], `adet-standing-${s.pid}`)}</td></tr>`).join("")}`;
+  bindTeamToggles(standingsTable);
 }
 // ---------- อีเวนต์สมัครล่วงหน้า + เช็คอิน ----------
 // events/{id}: { title, hostName, creatorUid, startAt, capacity, config, status: open|checkin|started,
