@@ -2950,9 +2950,18 @@ function archiveTeamSheetHtml(player, pid, archive, editing) {
   const team = profileOf(player);
   const isAuctionTeam = Array.isArray(player.team) && player.team.length;
   const source = isAuctionTeam ? "ทีมจากการประมูล" : "Team Sheet";
+  // ทีมจากการประมูล/ดราฟต์ ไม่มีข้อมูลท่า/นิสัย/อบิลิตี้ -> การ์ดแบบเดิม (ชื่อ + ไอเทม/ราคา)
+  // ส่วน Team Sheet ที่พิมพ์เอง มีข้อมูลครบ จึงโชว์การ์ดแบบละเอียดเหมือนตอนดูทีมระหว่างแข่งขัน (ท่า/ไอเทม/นิสัย/อบิลิตี้)
   const roster = isAuctionTeam
     ? `<div class="auction-sheet-roster team-size-${archive.settings?.teamSize || 10}">${player.team.map((member, index) => `<div class="auction-sheet-member"><img src="${member.sprite || teamSheetSprite(member.displayName)}" alt="${escapeHtml(member.displayName)}"><b>${escapeHtml(member.displayName)}</b><small>#${index + 1}${member.price ? ` • 💰${Number(member.price).toLocaleString()}` : ""}</small></div>`).join("")}</div>`
-    : `<div class="auction-sheet-roster">${team.map((mon, index) => `<div class="auction-sheet-member"><img src="${teamSheetSprite(mon.pokemon)}" data-poke-name="${escapeHtml(mon.pokemon)}" alt="${escapeHtml(mon.pokemon)}" onerror="this.style.visibility='hidden'"><b>${escapeHtml(mon.pokemon)}</b><small>#${index + 1}${mon.item ? ` • ${escapeHtml(mon.item)}` : ""}</small></div>`).join("") || '<p class="archives-empty">ยังไม่ได้ส่ง Team Sheet</p>'}</div>`;
+    : (team.length
+        ? `<div class="live-sheet-grid">${team.map((p, index) => {
+            const src = p.sprite || teamSheetSprite(p.pokemon);
+            const dataAttr = p.sprite ? "" : ` data-poke-name="${escapeHtml(p.pokemon)}"`;
+            const movesHtml = (p.moves && p.moves.length) ? p.moves.map(mv => `<div>${escapeHtml(mv)}</div>`).join("") : `<div class="empty-moves">ไม่มีข้อมูลท่า</div>`;
+            return `<div class="live-sheet-card"><header><b>${escapeHtml(p.pokemon)}</b><span>#${index + 1}</span></header><div class="live-sheet-main"><img src="${src}"${dataAttr} alt="${escapeHtml(p.pokemon)}" onerror="this.style.visibility='hidden'"><div class="live-sheet-moves">${movesHtml}</div></div><footer><span>ไอเทม<b>${escapeHtml(p.item || "-")}</b></span><span>นิสัย<b>${escapeHtml(p.nature || "-")}</b></span><span>อบิลิตี้<b>${escapeHtml(p.ability || "-")}</b></span></footer></div>`;
+          }).join("")}</div>`
+        : '<p class="archives-empty">ยังไม่ได้ส่ง Team Sheet</p>');
   return `<article class="archive-team-sheet">
     <header><div><h3>${escapeHtml(player.name || "ผู้เล่น")}${pid === archive.hostId ? ' <span class="badge">HOST</span>' : ''}</h3><p>${source} • ${team.length || 0}/${isAuctionTeam ? (archive.settings?.teamSize || 10) : 6} ตัว</p></div></header>
     ${roster}
