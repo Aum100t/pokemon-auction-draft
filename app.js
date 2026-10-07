@@ -477,13 +477,21 @@ async function beginNextRound() {
     let nextRoundIndex = t.round;
     if (t.started && t.history.length) {
       const previous=t.history[t.history.length-1];
-      // รองรับ BYE จากห้องเวอร์ชันเก่า และยืนยันผลที่รายงานแล้วเมื่อโฮสต์เปิดรอบถัดไป
+      // รองรับ BYE จากห้องเวอร์ชันเก่า และยืนยันผลที่รายงานแล้ว "ครบเวลารอแก้ไข 10 วินาทีแล้วเท่านั้น"
+      // เมื่อโฮสต์เปิดรอบถัดไป — ถ้ายังไม่ครบ 10 วินาที ต้องรอ ไม่ยืนยันให้ล่วงหน้า เผื่อยังมีคนต้องการแก้ไขผลที่รายงานผิด
+      const PENDING_CONFIRM_WINDOW_MS = 10000;
       previous.matches.forEach(m => {
         if (m.isBye && !m.winnerId) { m.winnerId = m.player1Id; m.score = "BYE"; }
-        if (!m.winnerId && m.pendingWinnerId) { m.winnerId=m.pendingWinnerId; m.score=m.pendingScore; m.pendingWinnerId=null; m.pendingScore=null; }
+        if (!m.winnerId && m.pendingWinnerId && Date.now() - (m.reportedAt || 0) >= PENDING_CONFIRM_WINDOW_MS) {
+          m.winnerId=m.pendingWinnerId; m.score=m.pendingScore; m.pendingWinnerId=null; m.pendingScore=null;
+        }
       });
       const incomplete=previous.matches.some(m=>!m.winnerId);
-      if(incomplete) { blockedReason = "ยังมีคู่แข่งขันที่ไม่ได้บันทึกผล"; return room; }
+      if(incomplete) {
+        const stillPending = previous.matches.some(m=>!m.winnerId && m.pendingWinnerId);
+        blockedReason = stillPending ? "ยังมีผลการแข่งขันที่กำลังรอยืนยัน กรุณารอให้ครบเวลายืนยันก่อน" : "ยังมีคู่แข่งขันที่ไม่ได้บันทึกผล";
+        return room;
+      }
       if(format === "single") ids=previous.matches.filter(m=>m.winnerId).map(m=>m.winnerId).filter(pid=>room.players[pid] && !room.players[pid].withdrawn);
       if(format === "double") { t.losses=t.losses||{}; previous.matches.forEach(m=>{if(!m.isBye&&m.winnerId){const loser=m.winnerId===m.player1Id?m.player2Id:m.player1Id;t.losses[loser]=(t.losses[loser]||0)+1;}}); ids=ids.filter(pid=>(t.losses[pid]||0)<2 && room.players[pid] && !room.players[pid].withdrawn); }
       const rrRounds=format === "roundRobin" ? (t.weeklySchedule?.length || generateRoundRobinSchedule(ids).length) : 0;
@@ -2744,7 +2752,17 @@ document.getElementById("btn-spectate-room")?.addEventListener("click", () => {
 async function openSpectate(roomId) {
   const roomSnap = await get(ref(db, "rooms/" + roomId));
   if (!roomSnap.exists()) { alert("ไม่พบห้องนี้"); return; }
-  if (!canManageRoom(roomSnap.val())) { alert("คุณดูแลได้เฉพาะทัวร์นาเมนต์ที่คุณสร้างเอง"); return; }
+  const roomData = roomSnap.val();
+  // ถ้าคนที่กดเข้ามาจริงๆ แล้วเป็นผู้เล่น/โฮสต์ของห้องนี้อยู่แล้ว (เช่น กดออกจากห้องแล้วใช้ปุ่มนี้กลับเข้ามาใหม่)
+  // ให้พาเข้าห้องแบบผู้เล่นปกติที่มีปุ่มกรอก/แก้ไขคะแนนครบ แทนที่จะโชว์แผงดูแลแบบแอดมินภายนอกซึ่งเป็นแค่โหมดดูอย่างเดียว
+  // ใช้ userUid เทียบ ซึ่งมีอยู่แล้วในข้อมูลผู้เล่นทุกห้องตั้งแต่เดิม จึงใช้ได้กับทัวร์นาเมนต์เก่าด้วยโดยไม่ต้องย้ายข้อมูลใดๆ
+  const myEntry = currentUser ? Object.entries(roomData.players || {}).find(([, p]) => p?.userUid === currentUser.uid) : null;
+  if (myEntry) {
+    const [myPlayerId, myPlayer] = myEntry;
+    enterLobby(roomId, myPlayerId, !!myPlayer.isHost);
+    return;
+  }
+  if (!canManageRoom(roomData)) { alert("คุณดูแลได้เฉพาะทัวร์นาเมนต์ที่คุณสร้างเอง"); return; }
   hideAllTopScreens();
   screenSpectate.classList.remove("hidden");
   setSpectateTab("matches");
