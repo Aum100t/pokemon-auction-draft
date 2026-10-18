@@ -156,3 +156,193 @@ button:disabled { cursor:not-allowed; opacity:.48; }
 .quick-bid:hover,.btn-custom-bid:hover,.btn-nominate:hover,.btn-ban:hover,.btn-pick:hover,.btn-snipe:hover { transform:translateY(-2px); filter:brightness(1.08); }
 .quick-bid:disabled,.btn-custom-bid:disabled,.btn-nominate:disabled,.btn-ban:disabled,.btn-pick:disabled,.btn-snipe:disabled { transform:none; filter:grayscale(.35); opacity:.5; }
 @media (max-width:620px) { .container { width:min(100% - 16px,1080px); padding-top:20px; }.card { padding:16px; border-radius:16px; }.game-header { align-items:flex-start; flex-wrap:wrap; }.format-row,.chat-input-row { flex-direction:column; }.tabs,.section-tabs { overflow:auto; }.tab-btn,.section-tab-btn { min-width:130px; }.standings-table { display:block; overflow-x:auto; white-space:nowrap; }.tournament-actions .primary { width:100%; }.score-entry { grid-template-columns:1fr!important; align-items:stretch; }.score-entry select,.score-entry button { width:100%; } }
+
+/* ---------- โหมดสุ่มตัว (Gacha) ---------- */
+.gacha-panel { margin:16px 0; padding:14px; border-radius:12px; background:rgba(255,255,255,.06); border:1px solid rgba(166,204,255,.18); }
+.gacha-head { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+.gacha-head h3 { margin:0; }
+.gacha-points { padding:5px 12px; border-radius:999px; background:var(--gold); color:#172740; font-weight:900; }
+.gacha-status { margin:8px 0; font-weight:700; }
+.gacha-machines { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; margin:10px 0; }
+.gacha-machine-btn { display:flex; flex-direction:column; align-items:center; gap:2px; padding:12px 8px; border:none; border-radius:12px; color:#fff; font-size:1rem; cursor:pointer; background:linear-gradient(135deg,#4f8cff,#2a56c6); }
+.gacha-machine-btn.mega { background:linear-gradient(135deg,#b05cff,#7a2fd0); }
+.gacha-machine-btn b { font-size:1.25rem; color:var(--gold); }
+.gacha-machine-btn small { opacity:.85; }
+.gacha-machine-btn:disabled { opacity:.45; cursor:not-allowed; filter:grayscale(.4); }
+.gacha-last,.gacha-pending { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:10px 0; padding:10px; border-radius:10px; background:rgba(255,255,255,.05); }
+.gacha-pending { border:1px dashed var(--gold); }
+.gacha-last-title { flex-basis:100%; font-size:.85rem; opacity:.85; }
+.gacha-box-title { margin:14px 0 8px; }
+.gacha-box-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(104px,1fr)); gap:8px; }
+.gacha-mon { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; min-height:118px; padding:8px 4px; border:1px solid rgba(166,204,255,.17); border-radius:10px; background:rgba(255,255,255,.045); text-align:center; color:inherit; font:inherit; }
+.gacha-mon img { width:64px; height:64px; object-fit:contain; }
+.gacha-mon b { max-width:100%; font-size:.76rem; overflow-wrap:break-word; }
+.gacha-mon small { color:var(--gold); font-size:.64rem; }
+.gacha-mon.is-mega { border-color:rgba(190,120,255,.6); }
+.gacha-mon.is-new { min-width:110px; border-color:var(--gold); }
+.gacha-mon.replaceable { cursor:pointer; border-color:#ff8aa0; }
+.gacha-mon.replaceable:hover { background:rgba(255,138,160,.18); }
+.gacha-empty-slot { display:flex; align-items:center; justify-content:center; min-height:118px; border:1px dashed rgba(166,204,255,.25); border-radius:10px; color:rgba(255,255,255,.35); font-size:.8rem; }
+.gacha-view-toggle { margin-top:12px; padding:8px 12px; border:1px solid var(--line); border-radius:9px; background:transparent; color:var(--ink); cursor:pointer; }
+.gacha-machine-view { margin-top:10px; }
+.gacha-filters { display:flex; gap:6px; margin:8px 0; flex-wrap:wrap; }
+.gacha-filter { padding:5px 12px; border:1px solid var(--line); border-radius:999px; background:transparent; color:var(--ink); cursor:pointer; font-size:.8rem; }
+.gacha-filter.active { background:var(--gold); color:#172740; font-weight:800; }
+.gacha-machine-section h4 { margin:12px 0 6px; }
+.gacha-chips { display:flex; flex-wrap:wrap; gap:5px; max-height:260px; overflow-y:auto; padding:2px; }
+.gacha-chip { padding:3px 9px; border-radius:999px; background:rgba(124,230,177,.18); border:1px solid rgba(124,230,177,.4); font-size:.72rem; }
+.gacha-chip.gone { background:rgba(255,255,255,.04); border-color:rgba(255,255,255,.12); color:rgba(255,255,255,.35); text-decoration:line-through; }
+.gacha-all-boxes { margin-top:14px; }
+.gacha-player-row { display:flex; flex-direction:column; gap:6px; padding:8px 0; border-top:1px solid rgba(255,255,255,.08); }
+
+/* ---------- Gacha v2: ปุ่ม ×5 / ฟีด / แลกเปลี่ยน / อนิเมชัน ---------- */
+.gacha-machine { display:flex; gap:8px; align-items:stretch; }
+.gacha-machine .gacha-machine-btn { flex:1; }
+.gacha-machine .gacha-machine-btn.multi { flex:0 0 96px; background:linear-gradient(135deg,#2f9d78,#1c6c52); }
+.gacha-machine .gacha-machine-btn.multi.mega { background:linear-gradient(135deg,#8f3fd0,#5b1f9c); }
+.gacha-machines { grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); }
+.gacha-anim-toggle { display:inline-flex; align-items:center; gap:6px; margin:4px 0 8px; font-size:.85rem; opacity:.9; cursor:pointer; }
+.gacha-feed { margin-top:14px; padding:10px 12px; border-radius:10px; background:rgba(255,255,255,.05); }
+.gacha-feed h4 { margin:0 0 6px; }
+.gacha-feed ul { margin:0; padding-left:18px; font-size:.82rem; line-height:1.6; }
+.gacha-feed li.mega { color:#e3c2ff; font-weight:700; }
+.gacha-trade { margin-top:14px; padding:12px; border-radius:10px; background:rgba(255,255,255,.05); }
+.gacha-trade.active { border:1px solid var(--gold); }
+.gacha-trade h4 { margin:0 0 8px; }
+.gacha-trade-start { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px; }
+.gacha-trade-start select { flex:1; min-width:140px; }
+.gacha-trade-sides { display:flex; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap; margin:8px 0; }
+.gacha-trade-side { display:flex; flex-direction:column; align-items:center; gap:4px; min-width:130px; }
+.gacha-trade-arrow { font-size:1.6rem; }
+.gacha-countdown { margin:8px 0; font-weight:800; color:var(--gold); }
+.gacha-countdown b { font-size:1.4rem; }
+.gacha-trade-close { margin-top:8px; padding:6px 12px; border:1px solid var(--line); border-radius:9px; background:transparent; color:var(--ink); cursor:pointer; }
+.gacha-mon.tradeable { cursor:pointer; border-color:#7ec8ff; }
+.gacha-mon.tradeable:hover { background:rgba(126,200,255,.18); }
+.gacha-mon.offered { border-color:var(--gold); box-shadow:0 0 0 2px rgba(255,212,90,.45); }
+.gacha-overlay { position:fixed; inset:0; z-index:9999; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; background:radial-gradient(circle at 50% 40%, rgba(40,70,140,.94), rgba(5,10,25,.97)); animation:gachaFade .2s ease-out; }
+.gacha-overlay.mega { background:radial-gradient(circle at 50% 40%, rgba(110,50,190,.94), rgba(15,5,35,.97)); }
+.gacha-overlay.closing { opacity:0; transition:opacity .2s; }
+.gacha-stage { min-height:320px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; }
+.gacha-capsule { position:relative; width:120px; height:120px; border-radius:50%; background:linear-gradient(180deg,#ff5f6d 0 50%,#f4f4f4 50% 100%); box-shadow:0 0 40px rgba(255,255,255,.35), inset 0 -8px 16px rgba(0,0,0,.25); animation:gachaShake 1.1s ease-in-out; }
+.gacha-capsule.mega { background:linear-gradient(180deg,#b05cff 0 50%,#f4f4f4 50% 100%); box-shadow:0 0 50px rgba(190,120,255,.75), inset 0 -8px 16px rgba(0,0,0,.25); }
+.gacha-capsule span { position:absolute; left:50%; top:50%; width:26px; height:26px; margin:-13px 0 0 -13px; border-radius:50%; background:#fff; border:4px solid #333; }
+.gacha-burst { width:40px; height:40px; border-radius:50%; background:#fff; box-shadow:0 0 80px 60px rgba(255,255,255,.9); animation:gachaBurst .26s ease-out forwards; }
+.gacha-card { display:flex; flex-direction:column; align-items:center; gap:6px; padding:18px 26px; border-radius:18px; background:rgba(255,255,255,.1); border:2px solid rgba(255,255,255,.35); animation:gachaPop .55s cubic-bezier(.2,1.4,.4,1); }
+.gacha-card.is-mega { border-color:#d9a6ff; box-shadow:0 0 50px rgba(190,120,255,.8); animation:gachaPop .55s cubic-bezier(.2,1.4,.4,1), gachaGlow 1.2s ease-in-out .55s infinite alternate; }
+.gacha-card img { width:180px; height:180px; object-fit:contain; filter:drop-shadow(0 6px 14px rgba(0,0,0,.5)); }
+.gacha-card b { font-size:1.3rem; }
+.gacha-card em { color:var(--gold); font-style:normal; font-weight:900; letter-spacing:.05em; }
+.gacha-card.small { padding:8px; gap:2px; animation:none; }
+.gacha-card.small img { width:72px; height:72px; }
+.gacha-card.small b { font-size:.75rem; }
+.gacha-count { margin:0; opacity:.8; }
+.gacha-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(104px,1fr)); gap:8px; width:min(92vw,560px); }
+.gacha-skip { padding:8px 16px; border:1px solid rgba(255,255,255,.4); border-radius:999px; background:transparent; color:#fff; cursor:pointer; }
+@keyframes gachaFade { from { opacity:0; } to { opacity:1; } }
+@keyframes gachaShake { 0% { transform:translateY(-90px) rotate(0); } 20% { transform:translateY(0) rotate(0); } 30% { transform:rotate(-14deg); } 40% { transform:rotate(14deg); } 50% { transform:rotate(-12deg); } 60% { transform:rotate(12deg); } 70% { transform:rotate(-8deg) scale(1.05); } 85% { transform:rotate(8deg) scale(1.1); } 100% { transform:rotate(0) scale(1.15); } }
+@keyframes gachaBurst { from { transform:scale(.4); opacity:1; } to { transform:scale(7); opacity:0; } }
+@keyframes gachaPop { from { transform:scale(.2) rotate(-8deg); opacity:0; } to { transform:scale(1) rotate(0); opacity:1; } }
+@keyframes gachaGlow { from { box-shadow:0 0 30px rgba(190,120,255,.6); } to { box-shadow:0 0 70px rgba(220,160,255,1); } }
+@media (prefers-reduced-motion: reduce) { .gacha-overlay * { animation:none !important; } }
+
+/* ---------- หัวเว็บ + Team Builder ---------- */
+.site-header { position:relative; display:flex; align-items:center; justify-content:center; }
+.header-btn { position:absolute; right:4px; top:50%; transform:translateY(-50%); padding:9px 14px; border:none; border-radius:999px; background:linear-gradient(135deg,#8f7ae0,#5b43c8); color:#fff; font-weight:800; cursor:pointer; box-shadow:0 4px 14px rgba(91,67,200,.4); }
+.header-btn:hover { filter:brightness(1.1); }
+@media (max-width:520px) { .site-header { flex-direction:column; gap:8px; } .header-btn { position:static; transform:none; } }
+body.tb-open { overflow:hidden; }
+.tb-overlay { position:fixed; inset:0; z-index:5000; overflow-y:auto; padding:18px 10px 60px; background:radial-gradient(circle at 50% 0%, rgba(30,50,110,.97), rgba(6,10,26,.98)); }
+.tb-panel { max-width:1180px; margin:0 auto; padding:18px; border-radius:16px; background:rgba(255,255,255,.05); border:1px solid rgba(166,204,255,.18); }
+.tb-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; }
+.tb-head h2 { margin:0; }
+.tb-list { display:grid; gap:10px; margin:12px 0; }
+.tb-team-card { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; padding:12px; border-radius:12px; background:rgba(255,255,255,.07); }
+.tb-team-actions { display:flex; gap:6px; flex-wrap:wrap; align-items:flex-start; }
+.tb-chips { display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
+.tb-chip { padding:2px 9px; border-radius:999px; background:rgba(143,122,224,.28); font-size:.74rem; }
+.tb-two { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:10px; }
+.tb-import { margin:10px 0; padding:10px; border-radius:10px; background:rgba(255,255,255,.05); }
+.tb-import summary { cursor:pointer; font-weight:700; }
+.tb-import textarea { width:100%; box-sizing:border-box; margin:8px 0; border-radius:8px; padding:10px; }
+.tb-slot-tabs { display:flex; flex-wrap:wrap; gap:6px; margin:14px 0 8px; }
+.tb-slot-tab { padding:7px 12px; border:1px solid var(--line); border-radius:999px; background:transparent; color:var(--ink); cursor:pointer; font-size:.82rem; }
+.tb-slot-tab.active { background:var(--gold); color:#172740; font-weight:800; border-color:var(--gold); }
+.tb-slot-form { padding:12px; border-radius:12px; background:rgba(255,255,255,.05); }
+.tb-moves { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:8px; }
+.tb-evs { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:6px; margin-bottom:10px; }
+.tb-ev { display:flex; flex-direction:column; gap:2px; font-size:.72rem; text-align:center; }
+.tb-ev input { width:100%; box-sizing:border-box; text-align:center; padding:6px 2px; }
+@media (max-width:520px) { .tb-evs { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+.tb-preview-title { margin:18px 0 8px; }
+.tb-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
+.saved-team-row { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; }
+.saved-team-row select { flex:1; min-width:180px; }
+
+/* ---------- การ์ดชีททีม (สไตล์ VGCode) ---------- */
+.sheet-viewer { --ink-s:#2a2540; --muted-s:#8b86a0; --line-s:#e6e0f3; --accent-s:#7b5fd6; margin:8px 0; padding:16px; border-radius:16px; color:var(--ink-s); background:linear-gradient(135deg,#fffdf8,#f1ecfb); text-align:left; }
+.sheet-title h3 { margin:0; font-size:1.35rem; color:var(--ink-s); }
+.sheet-title p { margin:2px 0 12px; color:var(--muted-s); }
+.sheet-layout { display:flex; gap:14px; align-items:flex-start; flex-wrap:wrap; }
+.sheet-grid { flex:1 1 560px; min-width:0; display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:12px; }
+.sheet-card { display:flex; flex-direction:column; border:1.5px solid var(--line-s); border-radius:14px; background:#fff; overflow:hidden; }
+.sheet-card.active { border-color:var(--accent-s); box-shadow:0 0 0 2px rgba(123,95,214,.18); }
+.sheet-card > header { display:flex; align-items:center; gap:10px; padding:10px 12px 4px; cursor:pointer; }
+.sheet-sprite { width:44px; height:44px; object-fit:contain; flex:0 0 auto; }
+.sheet-card h4 { margin:0; flex:1; min-width:0; font-size:1.05rem; overflow-wrap:anywhere; }
+.sheet-types { display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end; }
+.type-badge { padding:2px 8px; border-radius:6px; background:var(--tc,#888); color:#fff; font-size:.66rem; font-weight:800; text-shadow:0 1px 1px rgba(0,0,0,.35); }
+.sheet-body { position:relative; display:grid; grid-template-columns:minmax(0,.9fr) minmax(0,1.3fr); gap:10px; padding:6px 12px 12px; }
+@media (max-width:420px) { .sheet-body { grid-template-columns:1fr; } }
+.sheet-info { display:flex; flex-direction:column; gap:2px; }
+.sheet-label { margin-top:6px; font-size:.68rem; color:var(--muted-s); }
+.sheet-link { display:inline-flex; align-items:center; gap:6px; padding:0; border:none; background:none; color:var(--ink-s); font:inherit; font-weight:700; text-align:left; cursor:pointer; }
+.sheet-link:hover { color:var(--accent-s); text-decoration:underline; }
+.item-icon { display:inline-block; width:24px; height:24px; flex:0 0 24px; background:url(https://play.pokemonshowdown.com/sprites/itemicons-sheet.png) no-repeat; vertical-align:middle; }
+.sheet-moves { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:3px; }
+.sheet-move { display:flex; align-items:center; gap:8px; width:100%; padding:5px 8px; border:none; border-radius:7px; background:transparent; color:var(--ink-s); font:inherit; text-align:left; cursor:pointer; }
+.sheet-move i { width:4px; height:18px; border-radius:2px; flex:0 0 4px; }
+.sheet-move:hover,.sheet-move.on { background:#ece6fb; }
+.sheet-index { position:absolute; right:14px; bottom:6px; font-size:2.6rem; font-weight:900; color:rgba(123,95,214,.1); pointer-events:none; }
+.sheet-card > footer { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; padding:7px 12px; background:#f3f0fa; border-top:1px solid var(--line-s); }
+.sheet-nature { font-weight:700; }
+.sheet-nature small { color:var(--muted-s); font-weight:400; font-size:.66rem; }
+.sheet-stats { display:flex; align-items:flex-end; gap:8px; }
+.sheet-stats em { font-style:normal; font-size:.7rem; color:var(--muted-s); align-self:center; }
+.sheet-stat { display:flex; flex-direction:column; align-items:center; line-height:1.1; color:#6b6680; }
+.sheet-stat small { font-size:.62rem; font-weight:700; }
+.sheet-stat b { font-size:.95rem; }
+.sheet-stat.up { color:#d93b3b; }
+.sheet-stat.down { color:#2f6fe0; }
+.sheet-stat.up small,.sheet-stat.down small { font-weight:900; }
+.sheet-side { position:relative; flex:0 1 320px; min-width:260px; padding:16px; border-radius:14px; background:#ece6f8; }
+.sheet-close { position:absolute; right:10px; top:8px; border:none; background:none; font-size:1.1rem; cursor:pointer; color:var(--muted-s); }
+.sheet-panel-label { font-size:.7rem; letter-spacing:.1em; color:var(--muted-s); }
+.sheet-side h3 { margin:6px 0; font-size:1.5rem; color:var(--ink-s); }
+.sheet-sub { margin:2px 0 8px; color:var(--muted-s); }
+.sheet-facts { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin:8px 0; }
+.sheet-facts small { display:block; font-size:.66rem; color:var(--muted-s); }
+.sheet-facts b { font-size:1.45rem; }
+.sheet-target { margin:6px 0; }
+.sheet-short { margin:10px 0; font-size:1.2rem; font-weight:700; }
+.sheet-more { margin:8px 0; font-size:.85rem; }
+.sheet-more summary { cursor:pointer; font-weight:700; }
+.sheet-note { margin-top:12px; font-size:.7rem; color:var(--muted-s); }
+.sheet-big { display:block; width:150px; height:150px; margin:8px auto; object-fit:contain; }
+.sheet-focus-name { text-align:center; }
+.sheet-mega-btn { display:block; width:100%; margin:8px 0 12px; padding:10px; border:none; border-radius:10px; background:#d9d0f3; color:#3d2d8a; font-weight:800; cursor:pointer; }
+.sheet-mega-btn:hover { background:#cfc3f0; }
+.sheet-row { display:flex; align-items:baseline; gap:10px; padding:7px 0; border-bottom:1px solid #d9d0ec; }
+.sheet-row span { width:60px; color:var(--muted-s); font-size:.8rem; }
+.sheet-row small { color:var(--muted-s); }
+.sheet-stat-row { display:grid; grid-template-columns:34px 1fr 36px 36px; align-items:center; gap:8px; margin:5px 0; font-size:.82rem; }
+.sheet-stat-row span { color:var(--muted-s); }
+.sheet-stat-row b { text-align:right; }
+.sheet-stat-row em { font-style:normal; font-size:.74rem; color:var(--muted-s); text-align:right; }
+.sheet-stat-row em.plus { color:#1f9d55; font-weight:800; }
+.sheet-stat-row em.minus { color:#d93b3b; font-weight:800; }
+.sheet-stat-row.total { border-top:1px solid #d9d0ec; padding-top:6px; font-weight:800; }
+.sheet-bar { height:6px; border-radius:3px; background:#d9d0ec; overflow:hidden; }
+.sheet-bar i { display:block; height:100%; background:linear-gradient(90deg,#a28df0,#7b5fd6); }
+.sheet-card.is-mega { border-color:#c9a6f5; }
+.team-preview .sheet-viewer { max-width:100%; box-sizing:border-box; }

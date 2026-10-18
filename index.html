@@ -8,7 +8,7 @@
 </head>
 <body>
 <div class="container">
-  <h1>⚡ VGC Lab</h1>
+  <div class="site-header"><h1>⚡ VGC Lab</h1><button type="button" class="header-btn" id="btn-open-teambuilder" title="สร้างทีม / ชีททีม">🧩 สร้างทีม</button></div>
 
   <!-- หน้าแรก: สร้างห้อง / เข้าห้อง -->
   <div id="screen-home" class="card">
@@ -24,7 +24,7 @@
       <label class="field-label">บทบาทของผู้สร้างห้อง</label>
       <select id="create-host-participation"><option value="play">ร่วมเล่นเป็นผู้เล่น</option><option value="spectator">ผู้สังเกตการณ์เท่านั้น</option></select>
       <label class="field-label">โหมดห้อง</label>
-      <select id="create-room-mode"><option value="auction">แบบประมูล (Auction)</option><option value="normal">แบบปกติ (Normal)</option></select>
+      <select id="create-room-mode"><option value="auction">แบบประมูล (Auction)</option><option value="normal">แบบปกติ (Normal)</option><option value="gacha">🎰 แบบสุ่มตัว (Gacha)</option></select>
       <div id="create-auction-settings">
         <div id="create-auction-team-size-wrap">
           <label class="field-label">จำนวนโปเกมอนต่อทีมสำหรับการประมูล</label>
@@ -40,6 +40,21 @@
         <select id="create-auction-start-money"><option value="5000">5,000</option><option value="10000" selected>10,000</option><option value="30000">30,000</option><option value="50000">50,000</option></select>
       </div>
       <label class="field-label">รูปแบบการแข่งขัน (สูงสุด 2 เฟส)</label>
+      <div id="create-teamsheet-settings" class="hidden">
+        <label class="field-label">การส่ง Team Sheet</label>
+        <select id="create-teamsheet-required"><option value="yes" selected>บังคับส่ง Team Sheet ก่อนเริ่ม</option><option value="no">ไม่บังคับ (ส่งหรือไม่ส่งก็ได้)</option></select>
+      </div>
+      <div id="create-gacha-settings" class="hidden">
+        <p class="small-text">🎰 ทุกคนเริ่มที่ 20P • ตู้ธรรมดา 1P/ครั้ง • ตู้เมก้า 2P/ครั้ง • ชนะแมตช์ได้แต้ม = จำนวนเกมที่ชนะ + 1 • ต้องมีโปเกม่อนอย่างน้อย 6 ตัวถึงเริ่มได้</p>
+        <label class="field-label">ขนาด Box ของแต่ละคน</label>
+        <select id="create-gacha-box-size"><option value="6">6 ตัว</option><option value="10" selected>10 ตัว</option></select>
+        <label class="field-label">โปเกม่อนซ้ำกันได้ไหม</label>
+        <select id="create-gacha-duplicates"><option value="no" selected>ไม่ซ้ำ (ตัวที่ถูกสุ่มแล้วหายจากตู้)</option><option value="yes">ซ้ำได้ (ตู้ไม่หมด)</option></select>
+        <div id="create-gacha-return-wrap">
+          <label class="field-label">ตัวที่ทิ้ง/ถูกแทนที่ (โหมดไม่ซ้ำ)</label>
+          <select id="create-gacha-return"><option value="no" selected>หายไปจากตู้ถาวร</option><option value="yes">กลับเข้าตู้ให้สุ่มใหม่ได้</option></select>
+        </div>
+      </div>
       <div class="format-row"><select id="create-phase-1"><option value="roundRobin" selected>Round Robin (มีตารางรายสัปดาห์)</option><option value="swiss">Swiss</option><option value="single">Single Elimination</option><option value="double">Double Elimination</option></select><select id="create-phase-2"><option value="">ไม่มีเฟส 2</option><option value="swiss">Swiss</option><option value="single">Single Elimination</option><option value="double">Double Elimination</option><option value="roundRobin">Round Robin</option></select></div>
       <div class="format-row"><select id="create-best-of"><option value="BO1">BO1</option><option value="BO3">BO3</option></select><select id="create-checkin"><option value="none">ไม่ต้องเช็คอิน</option><option value="everyRound">เช็คอินทุกรอบ</option><option value="once">เช็คอินรอบเดียว</option><option value="perPhase">เช็คอิน 1 รอบต่อเฟส</option></select></div>
       <div id="create-swiss-rounds-wrap"><label class="field-label">จำนวนรอบ Swiss</label><select id="create-swiss-rounds"><option value="3">Swiss 3 รอบ</option><option value="4">Swiss 4 รอบ</option><option value="5">Swiss 5 รอบ</option><option value="6">Swiss 6 รอบ</option><option value="7">Swiss 7 รอบ</option></select></div>
@@ -61,6 +76,7 @@
       <input type="text" id="join-name" placeholder="ชื่อของคุณ" maxlength="20">
       <input type="text" id="join-code" placeholder="รหัสห้อง (6 หลัก)" maxlength="6" style="text-transform:uppercase">
       <button class="primary" id="btn-join">เข้าห้อง</button>
+      <button class="primary" id="btn-join-viewer" style="background:#7e57c2;">👀 เข้าดูแบบผู้ชม (ไม่ต้องกรอกชื่อก็ได้)</button>
     </div>
 
     <div id="home-error" class="error"></div>
@@ -92,6 +108,7 @@
     <div id="tournament-checkin" class="checkin-box"></div>
     <details class="team-editor"><summary>📝 บันทึกทีมที่ใช้แข่งในทัวร์นาเมนต์นี้</summary><p class="small-text">ทีมนี้เท่านั้นที่จะถูกนำไปคำนวณ Meta — ข้อมูลทีมจากช่วงประมูลจะไม่ถูกใช้</p><p class="small-text">1 ตัวต่อ 1 บรรทัด: Pokémon | Move 1, Move 2 | Item | Nature</p><textarea id="team-profile-input" rows="7" placeholder="Incineroar | Fake Out, Parting Shot | Sitrus Berry | Careful"></textarea><button class="primary" id="btn-save-team-profile">บันทึกทีมที่ใช้แข่ง</button></details>
     <div class="section-tabs hidden" id="tournament-auction-tabs"><button class="section-tab-btn active" id="tournament-tab-matches">⚔️ การแข่งขัน</button><button class="section-tab-btn" id="tournament-tab-draft">🎒 ทีมจากการประมูล</button></div>
+    <section class="gacha-panel hidden" id="tournament-gacha-panel"></section>
     <div id="tournament-pairings"></div>
     <section id="completed-archive-save" class="archive-save-box hidden">
       <p class="small-text">บันทึกรายการนี้เพื่อให้ดู Team Sheet และประวัติการต่อสู้ย้อนหลังได้</p>
@@ -118,9 +135,11 @@
     <p class="small-text" id="lobby-count">ผู้เล่น 0/0</p>
     <div class="team-sheet-progress" id="lobby-team-sheet-count"></div>
     <ul class="player-list" id="lobby-player-list"></ul>
+    <section class="gacha-panel hidden" id="lobby-gacha-panel"></section>
     <section class="team-editor hidden" id="lobby-team-editor">
       <h3>📝 ส่ง Team Sheet ก่อนเริ่มการแข่งขัน</h3>
       <p class="small-text">ผู้เล่นทุกคนต้องส่งก่อนผู้จัดเริ่มได้ ใช้ได้ทุกโหมด วางโค้ดทีมจาก Pokémon Showdown ได้เลย ระบบจะไม่นำบรรทัด EVs ไปแสดง และใช้ข้อมูลนี้คำนวณ Meta</p>
+      <div id="lobby-saved-team-row" class="saved-team-row hidden"><select id="lobby-saved-team-select"></select><button type="button" class="btn-leave-small" id="btn-load-saved-team">📂 ใช้ทีมที่บันทึกไว้</button></div>
       <textarea id="lobby-team-input" rows="14" placeholder="วางโค้ดทีมจาก Pokémon Showdown ที่นี่"></textarea>
       <button class="primary" id="btn-save-lobby-team">ส่ง Team Sheet</button>
       <pre class="team-sheet-preview hidden" id="lobby-team-preview"></pre>
@@ -373,6 +392,7 @@
   </div>
 </div>
 
+<div id="screen-teambuilder" class="tb-overlay hidden"><div class="tb-panel" id="tb-panel"></div></div>
 <script type="module" src="app.js"></script>
 </body>
 </html>

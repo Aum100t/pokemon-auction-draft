@@ -55,6 +55,16 @@
           }
         }
       }
+    },
+    "userTeams": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.token.email_verified === true && auth.uid === $uid",
+        ".validate": "newData.numChildren() <= 3",
+        "$teamId": {
+          ".validate": "newData.hasChildren(['name', 'mons']) && newData.child('name').isString() && newData.child('name').val().length <= 60"
+        }
+      }
     }
   }
 }

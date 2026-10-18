@@ -133,7 +133,7 @@ document.getElementById("btn-create").addEventListener("click", async () => {
   const hostParticipation = document.getElementById("create-host-participation").value;
   const maxPlayers = parseInt(document.getElementById("create-max-players").value);
   const mode = document.getElementById("create-room-mode").value;
-  const teamSize = mode === "auction" ? parseInt(document.getElementById("create-auction-team-size").value) : 6;
+  const teamSize = mode === "auction" ? parseInt(document.getElementById("create-auction-team-size").value) : mode === "gacha" ? parseInt(document.getElementById("create-gacha-box-size").value) : 6;
   const auctionSelector = document.getElementById("create-auction-selector").value;
   const auctionReveal = document.getElementById("create-auction-reveal").value;
   const timerSeconds = parseInt(document.getElementById("create-auction-timer").value);
@@ -160,7 +160,8 @@ document.getElementById("btn-create").addEventListener("click", async () => {
       startMoney,
       minBidIncrement: 50,
       timerSeconds,
-      teamSize
+      teamSize,
+      ...readExtraCreateSettings(mode)
     },
     players: {
       [playerId]: {
@@ -191,10 +192,13 @@ function syncCreateRoomOptions() {
   const phase1 = document.getElementById("create-phase-1").value;
   const phase2 = document.getElementById("create-phase-2").value;
   document.getElementById("create-auction-settings").classList.toggle("hidden", mode !== "auction");
+  document.getElementById("create-gacha-settings").classList.toggle("hidden", mode !== "gacha");
+  document.getElementById("create-teamsheet-settings").classList.toggle("hidden", mode !== "normal");
+  document.getElementById("create-gacha-return-wrap").classList.toggle("hidden", document.getElementById("create-gacha-duplicates").value === "yes");
   document.getElementById("create-swiss-rounds-wrap").classList.toggle("hidden", phase1 !== "swiss" && phase2 !== "swiss");
   document.getElementById("create-top-cut-wrap").classList.toggle("hidden", !phase2);
 }
-["create-room-mode", "create-phase-1", "create-phase-2"].forEach(id => {
+["create-room-mode", "create-phase-1", "create-phase-2", "create-gacha-duplicates"].forEach(id => {
   document.getElementById(id).addEventListener("change", syncCreateRoomOptions);
 });
 syncCreateRoomOptions();
@@ -240,6 +244,36 @@ document.getElementById("btn-join").addEventListener("click", async () => {
 
   onDisconnect(ref(db, `rooms/${code}/players/${playerId}`)).remove();
   enterLobby(code, playerId, false);
+});
+
+// ---------- เข้าดูแบบผู้ชม ----------
+// ผู้ชมถูกเก็บเป็นผู้เล่นแบบ isSpectator + isViewer จึงใช้มุมมองผู้สังเกตการณ์เดิมทั้งหมด
+// (ดูได้ทุกอย่างรวมโปเกม่อนที่ซ่อน, ไม่มีปุ่มบิด/กรอกคะแนน/ส่งทีม) และไม่นับเป็นผู้แข่งขัน เข้าได้ทุกสถานะห้อง
+document.getElementById("btn-join-viewer").addEventListener("click", async () => {
+  if (!currentUser) { homeError.textContent = "กรุณาเข้าสู่ระบบก่อนเข้าดูการแข่งขัน"; return; }
+  const code = document.getElementById("join-code").value.trim().toUpperCase();
+  if (!code) { homeError.textContent = "กรุณากรอกรหัสห้อง"; return; }
+  try {
+    const snapshot = await get(ref(db, "rooms/" + code));
+    if (!snapshot.exists()) { homeError.textContent = "ไม่พบห้องนี้"; return; }
+    const room = snapshot.val();
+    // เป็นสมาชิกของห้องอยู่แล้ว (ผู้เล่น/โฮสต์/ผู้ชมเดิม) -> กลับเข้าด้วยบทบาทเดิม ไม่สร้างรายการซ้ำ
+    const existing = Object.entries(room.players || {}).find(([, p]) => p?.userUid === currentUser.uid);
+    if (existing) { enterLobby(code, existing[0], !!existing[1].isHost); return; }
+    const name = document.getElementById("join-name").value.trim() || currentUser.displayName || "ผู้ชม";
+    const playerId = generatePlayerId();
+    await update(ref(db, `rooms/${code}/memberUids`), { [currentUser.uid]: true });
+    await update(ref(db, `rooms/${code}/players/${playerId}`), {
+      name, userUid: currentUser.uid, money: 0, isHost: false, isSpectator: true, isViewer: true,
+      joinedAt: Date.now(), pickTicketUsed: false, banTicketUsed: false, giftCount: 0, team: []
+    });
+    if (room.status === "waiting") onDisconnect(ref(db, `rooms/${code}/players/${playerId}`)).remove();
+    homeError.textContent = "";
+    enterLobby(code, playerId, false);
+  } catch (e) {
+    console.error("join viewer error:", e);
+    homeError.textContent = "เข้าดูไม่สำเร็จ กรุณาลองใหม่อีกครั้ง";
+  }
 });
 
 // ---------- Lobby ----------
@@ -345,15 +379,20 @@ function renderLobby(room) {
   const players = room.players || {};
   const playerIds = competitivePlayerIds(room);
   const maxPlayers = room.settings.maxPlayers;
-  const requiresTeamSheet = room.settings?.mode !== "auction";
+  const requiresTeamSheet = isTeamSheetMode(room);
+  const sheetMandatory = teamSheetRequired(room);
   const playersMissingTeamSheet = requiresTeamSheet ? playerIds.filter(pid => !hasSubmittedTeamSheet(players[pid])) : [];
   const submittedTeamSheets = playerIds.length - playersMissingTeamSheet.length;
+  const gachaMode = isGachaRoom(room);
+  const gachaShort = gachaMode ? playerIds.filter(pid => (players[pid].team?.length || 0) < GACHA_MIN_TO_START) : [];
+  const gachaPendingIds = gachaMode ? playerIds.filter(pid => !!players[pid].pendingPull) : [];
 
   document.getElementById("lobby-count").textContent = `ผู้เล่น ${playerIds.length}/${maxPlayers}`;
   const teamSheetCount = document.getElementById("lobby-team-sheet-count");
   if (teamSheetCount) {
-    teamSheetCount.classList.toggle("hidden", !requiresTeamSheet);
-    if (requiresTeamSheet) teamSheetCount.innerHTML = `<span>📄 Team Sheet</span><b>${submittedTeamSheets}/${playerIds.length || 0} คนส่งแล้ว</b><div class="team-sheet-progress-bar"><i style="width:${playerIds.length ? Math.round(submittedTeamSheets / playerIds.length * 100) : 0}%"></i></div>`;
+    teamSheetCount.classList.toggle("hidden", !requiresTeamSheet && !gachaMode);
+    if (gachaMode) { const ready = playerIds.length - gachaShort.length; teamSheetCount.innerHTML = `<span>📦 Box พร้อมแล้ว (≥${GACHA_MIN_TO_START} ตัว)</span><b>${ready}/${playerIds.length || 0} คน</b><div class="team-sheet-progress-bar"><i style="width:${playerIds.length ? Math.round(ready / playerIds.length * 100) : 0}%"></i></div>`; }
+    if (requiresTeamSheet) teamSheetCount.innerHTML = `<span>📄 Team Sheet${sheetMandatory ? "" : " (ไม่บังคับ)"}</span><b>${submittedTeamSheets}/${playerIds.length || 0} คนส่งแล้ว</b><div class="team-sheet-progress-bar"><i style="width:${playerIds.length ? Math.round(submittedTeamSheets / playerIds.length * 100) : 0}%"></i></div>`;
   }
 
   const listEl = document.getElementById("lobby-player-list");
@@ -362,24 +401,29 @@ function renderLobby(room) {
     const p = players[pid];
     const li = document.createElement("li");
     const canKick = isHost && pid !== currentPlayerId && !p.isHost;
-    li.innerHTML = `<span>${escapeHtml(p.name)}</span>${p.isHost ? '<span class="badge">HOST</span>' : ''}${p.isSpectator ? '<span class="badge">SPECTATOR</span>' : ''}${requiresTeamSheet && !p.isSpectator ? (hasSubmittedTeamSheet(p) ? '<span class="badge team-sheet-ready">📄 ส่ง Team Sheet แล้ว</span>' : '<span class="badge team-sheet-missing">⏳ รอ Team Sheet</span>') : ''}${canKick ? `<button class="btn-kick" data-kick-lobby="${pid}">เตะออก</button>` : ''}`;
+    li.innerHTML = `<span>${escapeHtml(p.name)}</span>${p.isHost ? '<span class="badge">HOST</span>' : ''}${p.isSpectator ? '<span class="badge">SPECTATOR</span>' : ''}${requiresTeamSheet && !p.isSpectator ? (hasSubmittedTeamSheet(p) ? '<span class="badge team-sheet-ready">📄 ส่ง Team Sheet แล้ว</span>' : `<span class="badge team-sheet-missing">${sheetMandatory ? "⏳ รอ Team Sheet" : "ยังไม่ส่ง (ไม่บังคับ)"}</span>`) : ''}${gachaMode && !p.isSpectator ? `<span class="badge ${(p.team?.length || 0) >= GACHA_MIN_TO_START ? 'team-sheet-ready' : 'team-sheet-missing'}">📦 ${p.team?.length || 0}/${gachaBoxSize(room)}</span>` : ''}${canKick ? `<button class="btn-kick" data-kick-lobby="${pid}">เตะออก</button>` : ''}`;
     listEl.appendChild(li);
   });
   listEl.querySelectorAll("button[data-kick-lobby]").forEach(btn => btn.addEventListener("click", () => kickPlayerFromLobby(btn.dataset.kickLobby)));
 
   if (isHost) {
     const startBtn = document.getElementById("btn-start");
-    startBtn.disabled = playerIds.length < 2 || playersMissingTeamSheet.length > 0;
+    startBtn.disabled = playerIds.length < 2 || (sheetMandatory && playersMissingTeamSheet.length > 0) || gachaShort.length > 0 || gachaPendingIds.length > 0;
     startBtn.textContent = playerIds.length < 2
       ? "รอผู้เล่น... (อย่างน้อย 2 คน)"
+      : gachaMode
+        ? (gachaShort.length ? `รอผู้เล่นสุ่มให้ครบ ${GACHA_MIN_TO_START} ตัว (อีก ${gachaShort.length} คน)` : gachaPendingIds.length ? `รอผู้เล่นตัดสินใจทิ้ง/แทนที่ (${gachaPendingIds.length} คน)` : `เริ่มการแข่งขัน (${playerIds.length} คน • Box พร้อมแล้ว)`)
       : !requiresTeamSheet
         ? `เริ่มประมูล (${playerIds.length} คน)`
+        : !sheetMandatory
+          ? `เริ่มเกม (${playerIds.length} คน • ส่งชีทแล้ว ${submittedTeamSheets} คน • ไม่บังคับส่ง)`
         : playersMissingTeamSheet.length
           ? `รอ Team Sheet อีก ${playersMissingTeamSheet.length} คน`
           : `เริ่มเกม (${playerIds.length} คน • ส่ง Team Sheet ครบแล้ว)`;
   }
 
   renderLobbyTeamEditor(room);
+  renderGachaPanel(room, document.getElementById("lobby-gacha-panel"), { showAllBoxes: true });
 }
 
 function teamSheetWithoutEvs(text) {
@@ -394,10 +438,17 @@ function renderLobbyTeamEditor(room) {
   const editor = document.getElementById("lobby-team-editor");
   if (!editor) return;
   const player = room.players?.[currentPlayerId];
-  const requiresTeamSheet = room.settings?.mode !== "auction";
+  const requiresTeamSheet = isTeamSheetMode(room);
   editor.classList.toggle("hidden", !!player?.isSpectator || !requiresTeamSheet);
   if (player?.isSpectator || !requiresTeamSheet) return;
   if (!player) return;
+  const mandatory = teamSheetRequired(room);
+  const sheetTitle = editor.querySelector("h3"), sheetHint = editor.querySelector("p.small-text");
+  if (sheetTitle) sheetTitle.textContent = mandatory ? "📝 ส่ง Team Sheet ก่อนเริ่มการแข่งขัน" : "📝 ส่ง Team Sheet (ไม่บังคับ)";
+  if (sheetHint) sheetHint.textContent = mandatory
+    ? "ผู้เล่นทุกคนต้องส่งก่อนผู้จัดเริ่มได้ วางโค้ดทีมจาก Pokémon Showdown ได้เลย ระบบจะไม่นำบรรทัด EVs ไปแสดง และใช้ข้อมูลนี้คำนวณ Meta"
+    : "ห้องนี้ไม่บังคับส่ง จะส่งหรือไม่ส่งก็ได้ ถ้าส่ง ระบบจะไม่นำบรรทัด EVs ไปแสดง และใช้ข้อมูลนี้คำนวณ Meta";
+  refreshLobbySavedTeams();
   const input = document.getElementById("lobby-team-input");
   const preview = document.getElementById("lobby-team-preview");
   const save = document.getElementById("btn-save-lobby-team");
@@ -453,7 +504,8 @@ function shouldCheckIn(room, roundIndex) {
 async function startTournament(roomId) {
   await runTransaction(ref(db,"rooms/"+roomId), room => {
     if(!room || room.status !== "waiting") return room;
-    if (room.settings?.mode !== "auction" && competitivePlayerIds(room).some(pid => !hasSubmittedTeamSheet(room.players?.[pid]))) return room;
+    if (teamSheetRequired(room) && competitivePlayerIds(room).some(pid => !hasSubmittedTeamSheet(room.players?.[pid]))) return room;
+    if (isGachaRoom(room) && gachaNotReadyIds(room).length) return room;
     room.status="tournament"; room.tournament=initialTournament(room); return room;
   });
 }
@@ -492,6 +544,7 @@ async function beginNextRound() {
         blockedReason = stillPending ? "ยังมีผลการแข่งขันที่กำลังรอยืนยัน กรุณารอให้ครบเวลายืนยันก่อน" : "ยังมีคู่แข่งขันที่ไม่ได้บันทึกผล";
         return room;
       }
+      if (isGachaRoom(room) && activePlayerIds(room).some(pid => room.players[pid].pendingPull)) { blockedReason = "มีผู้เล่นที่สุ่มได้แล้วแต่ยังไม่เลือกทิ้ง/แทนที่ตัวใหม่ กรุณารอให้ทุกคนตัดสินใจก่อน"; return room; }
       if(format === "single") ids=previous.matches.filter(m=>m.winnerId).map(m=>m.winnerId).filter(pid=>room.players[pid] && !room.players[pid].withdrawn);
       if(format === "double") { t.losses=t.losses||{}; previous.matches.forEach(m=>{if(!m.isBye&&m.winnerId){const loser=m.winnerId===m.player1Id?m.player2Id:m.player1Id;t.losses[loser]=(t.losses[loser]||0)+1;}}); ids=ids.filter(pid=>(t.losses[pid]||0)<2 && room.players[pid] && !room.players[pid].withdrawn); }
       const rrRounds=format === "roundRobin" ? (t.weeklySchedule?.length || generateRoundRobinSchedule(ids).length) : 0;
@@ -525,6 +578,7 @@ async function advanceTournamentPhase() {
     if(currentPlayerId!==room.hostId || room.status!=="tournament") return room;
     const t=room.tournament; if(t.phaseIndex+1 >= room.settings.phases.length) return room;
     const last=t.history[t.history.length-1]; if(last?.matches.some(m=>!m.winnerId)) return room;
+    if (isGachaRoom(room) && activePlayerIds(room).some(pid=>room.players[pid].pendingPull)) return room;
     // นำอันดับถัดไปมาแทนที่ผู้ถอนตัวทันทีตอนคัด Top
     Object.keys(t.pendingWithdrawals||{}).forEach(pid=>room.players[pid].withdrawn=true); t.pendingWithdrawals={};
     const cut=room.settings.topCut||activePlayerIds(room).length;
@@ -590,6 +644,10 @@ async function kickPlayerFromLobby(targetPlayerId) {
       if (currentPlayerId !== room.hostId || room.status !== "waiting") return room;
       const target = room.players?.[targetPlayerId];
       if (!target || target.isHost) return room;
+      if (isGachaRoom(room) && !gachaAllowDup(room) && room.gachaTaken) {
+        (target.team || []).forEach(m => { if (m?.id) delete room.gachaTaken[m.id]; });
+        if (target.pendingPull?.id) delete room.gachaTaken[target.pendingPull.id];
+      }
       if (target.userUid && room.memberUids) delete room.memberUids[target.userUid];
       delete room.players[targetPlayerId];
       return room;
@@ -650,7 +708,7 @@ function tournamentTeamOf(player) {
     pokemon: member.displayName || "Pokémon",
     sprite: member.sprite || "",
     moves: [],
-    item: member.price ? `ประมูล ${Number(member.price).toLocaleString()}` : (member.viaTicket ? "รับจากตั๋ว" : (member.viaRandom ? "สุ่มให้" : (member.viaGift ? `ของขวัญจาก ${member.giftedFromName || "เพื่อน"}` : ""))),
+    item: member.price ? `ประมูล ${Number(member.price).toLocaleString()}` : (member.viaGacha ? (member.machine === "mega" ? "จากตู้เมก้า" : "จากตู้ธรรมดา") : member.viaTicket ? "รับจากตั๋ว" : (member.viaRandom ? "สุ่มให้" : (member.viaGift ? `ของขวัญจาก ${member.giftedFromName || "เพื่อน"}` : ""))),
     nature: ""
   }));
   return parseTeamSheetProfile(player?.teamSheet || player?.teamText);
@@ -659,22 +717,16 @@ function profileOf(player) { return tournamentTeamOf(player); }
 function teamPreviewHtml(player, key) {
   const profile=profileOf(player); if(!profile.length) return `<p class="small-text">ยังไม่ได้บันทึกข้อมูลทีม</p>`;
   const isAuctionTeam = Array.isArray(player?.team) && player.team.length;
-  const source = isAuctionTeam ? "ทีมจากการประมูล" : "Team Sheet";
+  const source = isAuctionTeam ? (player.team.some(m => m?.viaGacha) ? "Box จากตู้สุ่ม" : "ทีมจากการประมูล") : "Team Sheet";
   if (isAuctionTeam) {
     // ทีมจากการประมูล/ดราฟต์ ไม่มีข้อมูลท่า/นิสัย/อบิลิตี้ -> ใช้การ์ดแบบเดิม (ชื่อ + ไอเทม)
     const roster = profile.map((p, index) => `<div class="auction-sheet-member"><img src="${p.sprite || teamSheetSprite(p.pokemon)}"${p.sprite ? "" : ` data-poke-name="${escapeHtml(p.pokemon)}"`} alt="${escapeHtml(p.pokemon)}" onerror="this.style.visibility='hidden'"><b>${escapeHtml(p.pokemon)}</b><small>#${index + 1}${p.item ? ` • ${escapeHtml(p.item)}` : ""}</small></div>`).join("");
     return `<button class="team-toggle" data-team-toggle="${key}">👁️ ดูทีมของ ${escapeHtml(player?.name || "ผู้เล่น")}</button><div id="team-preview-${key}" class="team-preview live-team-preview hidden"><b class="team-preview-owner">${source} ของ ${escapeHtml(player?.name || "ผู้เล่น")}</b><div class="auction-sheet-roster">${roster}</div></div>`;
   }
-  // Team Sheet ที่พิมพ์เอง -> การ์ดแบบละเอียด (3 ต่อแถว + ท่า + ไอเทม/นิสัย/อบิลิตี้)
-  const roster = profile.map((p, index) => {
-    const src = p.sprite || teamSheetSprite(p.pokemon);
-    const dataAttr = p.sprite ? "" : ` data-poke-name="${escapeHtml(p.pokemon)}"`;
-    const movesHtml = (p.moves && p.moves.length) ? p.moves.map(mv => `<div>${escapeHtml(mv)}</div>`).join("") : `<div class="empty-moves">ไม่มีข้อมูลท่า</div>`;
-    return `<div class="live-sheet-card"><header><b>${escapeHtml(p.pokemon)}</b><span>#${index + 1}</span></header><div class="live-sheet-main"><img src="${src}"${dataAttr} alt="${escapeHtml(p.pokemon)}" onerror="this.style.visibility='hidden'"><div class="live-sheet-moves">${movesHtml}</div></div><footer><span>ไอเทม<b>${escapeHtml(p.item || "-")}</b></span><span>นิสัย<b>${escapeHtml(p.nature || "-")}</b></span><span>อบิลิตี้<b>${escapeHtml(p.ability || "-")}</b></span></footer></div>`;
-  }).join("");
-  return `<button class="team-toggle" data-team-toggle="${key}">👁️ ดูทีมของ ${escapeHtml(player?.name || "ผู้เล่น")}</button><div id="team-preview-${key}" class="team-preview live-team-preview hidden"><b class="team-preview-owner">${source} ของ ${escapeHtml(player?.name || "ผู้เล่น")}</b><div class="live-sheet-grid">${roster}</div></div>`;
+  // Team Sheet ที่พิมพ์เอง -> การ์ดชีทแบบ VGCode (ท่า/ไอเทม/นิสัย + กดดูรายละเอียดได้ ไม่โชว์ตัวเลข EV แสดงเฉพาะสีของนิสัย)
+  return `<button class="team-toggle" data-team-toggle="${key}">👁️ ดูทีมของ ${escapeHtml(player?.name || "ผู้เล่น")}</button><div id="team-preview-${key}" class="team-preview live-team-preview hidden"><b class="team-preview-owner">${source} ของ ${escapeHtml(player?.name || "ผู้เล่น")}</b>${sheetViewerHtml("sheet-" + key, sheetMonsOf(player), { showEvs: false })}</div>`;
 }
-function bindTeamToggles(root) { root.querySelectorAll("button[data-team-toggle]").forEach(btn=>btn.addEventListener("click",()=>document.getElementById("team-preview-"+btn.dataset.teamToggle)?.classList.toggle("hidden"))); hydratePokeApiSprites(root); }
+function bindTeamToggles(root) { root.querySelectorAll("button[data-team-toggle]").forEach(btn=>btn.addEventListener("click",()=>{const pv=document.getElementById("team-preview-"+btn.dataset.teamToggle); pv?.classList.toggle("hidden"); if(pv && !pv.classList.contains("hidden")) pv.querySelectorAll(".sheet-viewer").forEach(hydrateSheetViewer);})); hydratePokeApiSprites(root); }
 function renderMetaAnalytics(room) {
   const box=document.getElementById("meta-analytics"), content=document.getElementById("meta-content");
   box.classList.remove("hidden");
@@ -797,6 +849,7 @@ function renderTournamentInner(room) {
   const t=room.tournament||initialTournament(room), phase=room.settings.phases[t.phaseIndex]||"swiss", stats=tournamentStats(room), current=t.history[t.history.length-1];
   const amSpectator=!!room.players[currentPlayerId]?.isSpectator;
   document.getElementById("tournament-room-code").textContent=currentRoomId;
+  renderGachaPanel(room, document.getElementById("tournament-gacha-panel"), {});
   document.getElementById("tournament-meta").textContent=`เฟส ${t.phaseIndex+1}/${room.settings.phases.length}: ${tournamentLabel(phase)} • ${room.settings.bestOf} • ผู้เล่นสมัคร ${competitivePlayerIds(room).length}/${room.settings.maxPlayers}`;
   document.getElementById("tournament-date").textContent=`เริ่มการแข่งขัน: ${formatTournamentDate(room.createdAt)}${room.completedAt?` • จบ: ${formatTournamentDate(room.completedAt)}`:""}`;
   const archiveSave = document.getElementById("completed-archive-save");
@@ -833,7 +886,7 @@ function renderTournamentInner(room) {
   document.getElementById("btn-advance-phase").classList.toggle("hidden",!isHost || !activeTournament || !t.phaseComplete || t.phaseIndex+1>=room.settings.phases.length); document.getElementById("btn-advance-phase").onclick=advanceTournamentPhase;
   document.getElementById("btn-finish-tournament").classList.toggle("hidden",!isHost||!activeTournament); document.getElementById("btn-finish-tournament").onclick=()=>finishTournament(room);
   const withdrawn=!!room.players[currentPlayerId]?.withdrawn; const withdrawButton=document.getElementById("btn-withdraw"); withdrawButton.classList.toggle("hidden",withdrawn||amSpectator||!activeTournament); document.getElementById("btn-cancel-withdraw").classList.add("hidden"); withdrawButton.onclick=async()=>{if(!confirm("ยืนยันถอนตัว? คุณจะกลับเข้ารายการนี้ไม่ได้")) return; withdrawButton.disabled=true; const saved=await tournamentAction("withdraw"); if(saved) document.getElementById("admin-call-status").textContent="ถอนตัวสำเร็จแล้ว"; withdrawButton.disabled=false;};
-  const table=document.getElementById("tournament-standings"); table.innerHTML=`<tr><th>#</th><th>ผู้เล่น</th><th>ชนะ</th><th>แพ้</th><th>แต้ม</th><th>ทีม</th><th></th></tr>`+stats.map((s,i)=>`<tr><td>${i+1}</td><td>${escapeHtml(s.name)}${room.players[s.pid].withdrawn?" (ถอนตัว)":""}</td><td>${s.wins}</td><td>${s.losses}</td><td>${s.points}</td><td>${teamPreviewHtml(room.players[s.pid],`standing-${s.pid}`)}</td><td>${isHost&&activeTournament&&s.pid!==currentPlayerId&&!room.players[s.pid].withdrawn?`<button class="btn-kick" data-kick-tournament="${s.pid}">เตะออก</button>`:""}</td></tr>`).join(""); bindTeamToggles(table); table.querySelectorAll("button[data-kick-tournament]").forEach(btn=>btn.addEventListener("click",()=>kickPlayerFromTournament(btn.dataset.kickTournament)));
+  const table=document.getElementById("tournament-standings"); table.innerHTML=`<tr><th>#</th><th>ผู้เล่น</th><th>ชนะ</th><th>แพ้</th><th>แต้ม</th>${isGachaRoom(room)?"<th>แต้มสุ่ม</th>":""}<th>ทีม</th><th></th></tr>`+stats.map((s,i)=>`<tr><td>${i+1}</td><td>${escapeHtml(s.name)}${room.players[s.pid].withdrawn?" (ถอนตัว)":""}</td><td>${s.wins}</td><td>${s.losses}</td><td>${s.points}</td>${isGachaRoom(room)?`<td>${gachaBalance(room,s.pid)}P</td>`:""}<td>${teamPreviewHtml(room.players[s.pid],`standing-${s.pid}`)}</td><td>${isHost&&activeTournament&&s.pid!==currentPlayerId&&!room.players[s.pid].withdrawn?`<button class="btn-kick" data-kick-tournament="${s.pid}">เตะออก</button>`:""}</td></tr>`).join(""); bindTeamToggles(table); table.querySelectorAll("button[data-kick-tournament]").forEach(btn=>btn.addEventListener("click",()=>kickPlayerFromTournament(btn.dataset.kickTournament)));
 }
 
 function renderTournamentAuctionTeams(room) {
@@ -1064,13 +1117,21 @@ document.getElementById("btn-start").addEventListener("click", async () => {
   const btn = document.getElementById("btn-start");
   const current = (await get(ref(db, "rooms/" + currentRoomId))).val();
   if (!current) return;
-  const missingTeamSheets = current.settings?.mode === "auction" ? [] : competitivePlayerIds(current).filter(pid => !hasSubmittedTeamSheet(current.players?.[pid]));
+  const missingTeamSheets = teamSheetRequired(current) ? competitivePlayerIds(current).filter(pid => !hasSubmittedTeamSheet(current.players?.[pid])) : [];
   if (missingTeamSheets.length) {
     alert(`ยังเริ่มไม่ได้: รอ Team Sheet จากผู้เล่นอีก ${missingTeamSheets.length} คน`);
     renderLobby(current);
     return;
   }
-  if (current?.settings?.mode === "normal") {
+  if (isGachaRoom(current)) {
+    const notReady = gachaNotReadyIds(current);
+    if (notReady.length) {
+      alert(`ยังเริ่มไม่ได้: ผู้เล่น ${notReady.length} คนยังมีโปเกม่อนไม่ครบ ${GACHA_MIN_TO_START} ตัว หรือยังไม่ได้ตัดสินใจกับตัวที่สุ่มได้`);
+      renderLobby(current);
+      return;
+    }
+  }
+  if (current?.settings?.mode === "normal" || isGachaRoom(current)) {
     btn.disabled = true;
     btn.textContent = "กำลังเปิดการแข่งขัน...";
     await startTournament(currentRoomId);
@@ -1096,7 +1157,7 @@ document.getElementById("btn-start").addEventListener("click", async () => {
 
     await runTransaction(ref(db, "rooms/" + currentRoomId), latest => {
       if (!latest || latest.status !== "waiting") return latest;
-      if (latest.settings?.mode !== "auction" && competitivePlayerIds(latest).some(pid => !hasSubmittedTeamSheet(latest.players?.[pid]))) return latest;
+      if (isTeamSheetMode(latest) && competitivePlayerIds(latest).some(pid => !hasSubmittedTeamSheet(latest.players?.[pid]))) return latest;
       latest.status = "picking";
       latest.pool = pool;
       latest.turnOrder = playerIds;
@@ -2067,7 +2128,7 @@ async function leaveRoom({ confirmFirst = true, preservePlayer = false } = {}) {
     if (roomId && playerId) {
       try { await onDisconnect(ref(db, `rooms/${roomId}/players/${playerId}`)).cancel(); } catch (e) {}
 
-      if (preservePlayer) {
+      if (preservePlayer && !latestRoom?.players?.[playerId]?.isViewer) {
         // สำหรับทัวร์นาเมนต์: ออกจากหน้าห้องเท่านั้น ไม่กระทบผลแข่งหรือรายชื่อผู้เล่น
       } else if (isHost && latestRoom?.status === "waiting") {
         await set(ref(db, "rooms/" + roomId), null);
@@ -2970,19 +3031,12 @@ function teamSheetSprite(name) {
 function archiveTeamSheetHtml(player, pid, archive, editing) {
   const team = profileOf(player);
   const isAuctionTeam = Array.isArray(player.team) && player.team.length;
-  const source = isAuctionTeam ? "ทีมจากการประมูล" : "Team Sheet";
+  const source = isAuctionTeam ? (player.team.some(m => m?.viaGacha) ? "Box จากตู้สุ่ม" : "ทีมจากการประมูล") : "Team Sheet";
   // ทีมจากการประมูล/ดราฟต์ ไม่มีข้อมูลท่า/นิสัย/อบิลิตี้ -> การ์ดแบบเดิม (ชื่อ + ไอเทม/ราคา)
   // ส่วน Team Sheet ที่พิมพ์เอง มีข้อมูลครบ จึงโชว์การ์ดแบบละเอียดเหมือนตอนดูทีมระหว่างแข่งขัน (ท่า/ไอเทม/นิสัย/อบิลิตี้)
   const roster = isAuctionTeam
     ? `<div class="auction-sheet-roster team-size-${archive.settings?.teamSize || 10}">${player.team.map((member, index) => `<div class="auction-sheet-member"><img src="${member.sprite || teamSheetSprite(member.displayName)}" alt="${escapeHtml(member.displayName)}"><b>${escapeHtml(member.displayName)}</b><small>#${index + 1}${member.price ? ` • 💰${Number(member.price).toLocaleString()}` : ""}</small></div>`).join("")}</div>`
-    : (team.length
-        ? `<div class="live-sheet-grid">${team.map((p, index) => {
-            const src = p.sprite || teamSheetSprite(p.pokemon);
-            const dataAttr = p.sprite ? "" : ` data-poke-name="${escapeHtml(p.pokemon)}"`;
-            const movesHtml = (p.moves && p.moves.length) ? p.moves.map(mv => `<div>${escapeHtml(mv)}</div>`).join("") : `<div class="empty-moves">ไม่มีข้อมูลท่า</div>`;
-            return `<div class="live-sheet-card"><header><b>${escapeHtml(p.pokemon)}</b><span>#${index + 1}</span></header><div class="live-sheet-main"><img src="${src}"${dataAttr} alt="${escapeHtml(p.pokemon)}" onerror="this.style.visibility='hidden'"><div class="live-sheet-moves">${movesHtml}</div></div><footer><span>ไอเทม<b>${escapeHtml(p.item || "-")}</b></span><span>นิสัย<b>${escapeHtml(p.nature || "-")}</b></span><span>อบิลิตี้<b>${escapeHtml(p.ability || "-")}</b></span></footer></div>`;
-          }).join("")}</div>`
-        : '<p class="archives-empty">ยังไม่ได้ส่ง Team Sheet</p>');
+    : (team.length ? sheetViewerHtml("archive-" + pid, sheetMonsOf(player), { showEvs: false }) : '<p class="archives-empty">ยังไม่ได้ส่ง Team Sheet</p>');
   return `<article class="archive-team-sheet">
     <header><div><h3>${escapeHtml(player.name || "ผู้เล่น")}${pid === archive.hostId ? ' <span class="badge">HOST</span>' : ''}</h3><p>${source} • ${team.length || 0}/${isAuctionTeam ? (archive.settings?.teamSize || 10) : 6} ตัว</p></div></header>
     ${roster}
@@ -3080,7 +3134,8 @@ function readRoomFormForEvent() {
       startMoney: mode === "auction" ? parseInt(document.getElementById("create-auction-start-money").value) : 0,
       minBidIncrement: 50,
       timerSeconds: parseInt(document.getElementById("create-auction-timer").value),
-      teamSize: mode === "auction" ? parseInt(document.getElementById("create-auction-team-size").value) : 6
+      teamSize: mode === "auction" ? parseInt(document.getElementById("create-auction-team-size").value) : mode === "gacha" ? parseInt(document.getElementById("create-gacha-box-size").value) : 6,
+      ...readExtraCreateSettings(mode)
     }
   };
 }
@@ -3178,7 +3233,7 @@ function renderEventDetail() {
   const remaining = (ev.checkinEndsAt || 0) - serverNow();
   const checkinOpen = ev.status === "checkin" && remaining > 0;
   const myPid = uid ? ev.playerMap?.[uid] : null;
-  const requiresTeamSheet = ev.config?.mode !== "auction";
+  const requiresTeamSheet = isTeamSheetMode({ settings: ev.config });
 
   const rows = regs.map((r, i) => {
     let state;
@@ -3211,7 +3266,7 @@ function renderEventDetail() {
     playerArea += `<section class="team-editor">
       <h3>📝 ส่ง Team Sheet ล่วงหน้า</h3>
       <p class="small-text">วางโค้ดทีมจาก Pokémon Showdown ได้เลย ไม่ต้องรอเข้าห้อง ระบบจะไม่นำบรรทัด EVs ไปแสดง</p>
-      <textarea id="ev-team-input" rows="14" placeholder="วางโค้ดทีมจาก Pokémon Showdown ที่นี่">${escapeHtml(prevTeam ?? mine.teamText ?? "")}</textarea>
+      ${evSavedPicker()}<textarea id="ev-team-input" rows="14" placeholder="วางโค้ดทีมจาก Pokémon Showdown ที่นี่">${escapeHtml(prevTeam ?? mine.teamText ?? "")}</textarea>
       <button class="primary" data-ev-act="save-team">ส่ง Team Sheet</button>
       <pre class="team-sheet-preview${sheet ? "" : " hidden"}">${escapeHtml(sheet)}</pre>
     </section>`;
@@ -3285,6 +3340,10 @@ async function handleEventAction(act, el) {
       const teamText = document.getElementById("ev-team-input")?.value.trim() || "";
       const teamSheet = teamSheetWithoutEvs(teamText);
       await update(child(evRef, "registrations/" + uid), { teamText: teamText || null, teamSheet: teamSheet || null });
+    } else if (act === "load-saved-team") {
+      const saved = builder.teams[document.getElementById("ev-saved-team")?.value];
+      const ta = document.getElementById("ev-team-input");
+      if (saved && ta) ta.value = exportShowdownTeam(saved.mons);
     } else if (act === "enter") {
       const pid = ev.playerMap?.[uid];
       if (!pid || !ev.roomId) return;
@@ -3350,4 +3409,1217 @@ async function createRoomFromEvent(eventId) {
   if (eventsUnsub) { eventsUnsub(); eventsUnsub = null; }
   hideAllTopScreens();
   enterLobby(roomId, hostPid, true);
+}
+
+// =====================================================================
+// โหมดที่ 3: สุ่มตัว (Gacha)
+// - ทุกคนเริ่มที่ 20P / ตู้ธรรมดา 1P / ตู้เมก้า 2P (ดึงรายชื่อจาก POKEMON_LIST เดิม)
+// - แต้มที่ได้จากแมตช์ "คำนวณจากประวัติผลแข่ง" (เกมที่ชนะ + 1 ต่อแมตช์) แล้วหักด้วย pointsSpent ที่ใช้ไปแล้ว
+//   จึงไม่มีทางแต้มเบิ้ล/ตกหล่นเวลาแก้ผล และใช้ได้กับทุกทางที่ผลถูกยืนยัน
+// - สุ่มได้ตอนรอเริ่ม (ล็อบบี้) และช่วงรอระหว่างรอบ (ทุกคู่ยืนยันผลครบ ก่อนโฮสต์กดเริ่มรอบถัดไป)
+// - สุ่ม ×5, ฟีดสด, อนิเมชันตอนสุ่ม, แลกเปลี่ยน (ยืนยันทั้งคู่ + นับถอยหลัง 10 วิ), ตัวเลือกคืนตัวที่ทิ้งเข้าตู้
+// =====================================================================
+const GACHA_MIN_TO_START = 6;
+const GACHA_MULTI = 5;
+const GACHA_TRADE_COUNTDOWN_MS = 10000;
+let gachaBusy = false;
+let gachaTradeBusy = false;
+let gachaMachineViewOpen = false;
+let gachaMachineFilter = "all"; // all | left | gone
+let gachaTradeTarget = "";
+let gachaTradeExecKey = "";
+const gachaOpenPreviews = new Set();
+const gachaStaleClosed = new Set();
+
+function isGachaRoom(room) { return room?.settings?.mode === "gacha"; }
+function isTeamSheetMode(room) { return !["auction", "gacha"].includes(room?.settings?.mode); }
+// โหมดปกติเลือกได้ว่าบังคับส่ง Team Sheet หรือไม่ (ห้องเก่าที่ไม่มีค่านี้ = บังคับเหมือนเดิม)
+function teamSheetRequired(room) { return isTeamSheetMode(room) && room?.settings?.teamSheetRequired !== false; }
+function gachaBoxSize(room) { return Number(room?.settings?.gachaBoxSize || room?.settings?.teamSize || 6); }
+function gachaAllowDup(room) { return !!room?.settings?.gachaAllowDuplicates; }
+// เปิดตัวเลือก "คืนตัวที่ทิ้ง/ถูกแทนที่เข้าตู้" (มีผลเฉพาะโหมดไม่ซ้ำ)
+function gachaReturnOnDrop(room) { return !!room?.settings?.gachaReturnToMachine && !gachaAllowDup(room); }
+function gachaCost(room, machine) {
+  return machine === "mega" ? Number(room?.settings?.gachaCostMega ?? 2) : Number(room?.settings?.gachaCostNormal ?? 1);
+}
+function gachaMachinePool(machine) {
+  const wantMega = machine === "mega";
+  return POKEMON_LIST.filter(p => !!p.isMega === wantMega);
+}
+function gachaAnimEnabled() { try { return localStorage.getItem("vgcLabGachaAnim") !== "off"; } catch (e) { return true; } }
+function gachaSetAnim(on) { try { localStorage.setItem("vgcLabGachaAnim", on ? "on" : "off"); } catch (e) { /* ignore */ } }
+
+function readGachaCreateSettings(mode) {
+  if (mode !== "gacha") return {};
+  return {
+    gachaBoxSize: parseInt(document.getElementById("create-gacha-box-size").value),
+    gachaAllowDuplicates: document.getElementById("create-gacha-duplicates").value === "yes",
+    gachaReturnToMachine: document.getElementById("create-gacha-return").value === "yes",
+    gachaStartPoints: 20,
+    gachaCostNormal: 1,
+    gachaCostMega: 2
+  };
+}
+// ตั้งค่าเฉพาะโหมดที่ถูกส่งต่อเข้า settings ตอนสร้างห้อง/อีเวนต์
+function readExtraCreateSettings(mode) {
+  const extra = readGachaCreateSettings(mode);
+  if (mode === "normal") extra.teamSheetRequired = document.getElementById("create-teamsheet-required").value !== "no";
+  return extra;
+}
+
+// แต้มที่ได้จากแมตช์: แต่ละฝ่ายได้ (จำนวนเกมที่ตัวเองชนะ + 1)  เช่น 2-1 -> ผู้ชนะ 3 / ผู้แพ้ 2, BO1 1-0 -> 2 / 1
+// BYE / ถอนตัว (ไม่มีสกอร์) -> ผู้ชนะได้ขั้นต่ำของผู้ชนะ (BO1 = 2, BO3 = 3) ผู้แพ้ไม่ได้
+function gachaEarnedPoints(room, pid) {
+  const t = room?.tournament;
+  if (!t) return 0;
+  const bo = parseInt(String(room.settings?.bestOf || "BO1").replace(/\D/g, ""), 10) || 1;
+  const minWinPoints = Math.ceil(bo / 2) + 1;
+  let total = 0;
+  [...(t.phaseHistory || []), ...(t.history || [])].forEach(round => (round.matches || []).forEach(m => {
+    if (!m || !m.winnerId) return;
+    const isP1 = m.player1Id === pid, isP2 = m.player2Id === pid;
+    if (!isP1 && !isP2) return;
+    const parsed = /^\s*(\d+)\s*-\s*(\d+)\s*$/.exec(String(m.score || ""));
+    if (parsed && !m.isBye) total += Number(isP1 ? parsed[1] : parsed[2]) + 1;
+    else if (m.winnerId === pid) total += minWinPoints;
+  }));
+  return total;
+}
+function gachaBalance(room, pid) {
+  const start = Number(room?.settings?.gachaStartPoints ?? 20);
+  return start + gachaEarnedPoints(room, pid) - Number(room?.players?.[pid]?.pointsSpent || 0);
+}
+// สุ่ม/แลกได้: ตอนรอเริ่ม หรือช่วงที่รอบล่าสุดทุกคู่ยืนยันผลครบแล้ว (ยังไม่เริ่มรอบถัดไป)
+function gachaWindowOpen(room) {
+  if (!room) return false;
+  if (room.status === "waiting") return true;
+  if (room.status !== "tournament") return false;
+  const t = room.tournament;
+  if (!t || t.championId) return false;
+  const cur = t.history?.[t.history.length - 1];
+  if (!cur) return true;
+  return (cur.matches || []).every(m => m.winnerId);
+}
+function gachaNotReadyIds(room) {
+  return competitivePlayerIds(room).filter(pid => {
+    const p = room.players[pid];
+    return (p.team?.length || 0) < GACHA_MIN_TO_START || !!p.pendingPull;
+  });
+}
+function gachaTradeOf(room, pid) {
+  for (const [id, t] of Object.entries(room?.gachaTrades || {})) {
+    if (t && (t.a === pid || t.b === pid)) return { ...t, id };
+  }
+  return null;
+}
+function gachaCanPull(room, pid, machine, count = 1) {
+  if (!isGachaRoom(room)) return { ok: false, reason: "ห้องนี้ไม่ใช่โหมดสุ่มตัว" };
+  const me = room.players?.[pid];
+  if (!me || me.isSpectator) return { ok: false, reason: "ผู้ชม/ผู้สังเกตการณ์สุ่มตัวไม่ได้" };
+  if (me.withdrawn) return { ok: false, reason: "คุณถอนตัวจากการแข่งขันแล้ว" };
+  if (!gachaWindowOpen(room)) return { ok: false, reason: "สุ่มได้เฉพาะตอนรอเริ่ม หรือช่วงรอระหว่างรอบ (หลังทุกคู่ยืนยันผลครบ และก่อนโฮสต์กดเริ่มรอบถัดไป)" };
+  if (me.pendingPull) return { ok: false, reason: "มีตัวที่สุ่มได้ค้างอยู่ กรุณาเลือกทิ้งหรือแทนที่ก่อน" };
+  const trade = gachaTradeOf(room, pid);
+  if (trade && trade.aOk && trade.bOk) return { ok: false, reason: "กำลังนับถอยหลังแลกเปลี่ยนอยู่ กดยกเลิกการยืนยันก่อนถ้าต้องการสุ่ม" };
+  const cost = gachaCost(room, machine) * count;
+  if (gachaBalance(room, pid) < cost) return { ok: false, reason: `แต้มไม่พอ (ต้องใช้ ${cost}P)` };
+  return { ok: true };
+}
+function gachaPushFeed(room, entry) {
+  const feed = Array.isArray(room.gachaFeed) ? room.gachaFeed : Object.values(room.gachaFeed || {});
+  feed.push(entry);
+  room.gachaFeed = feed.slice(-30);
+}
+
+function renderGachaPanels(room) {
+  if (!room) return;
+  renderGachaPanel(room, document.getElementById("lobby-gacha-panel"), { showAllBoxes: true });
+  renderGachaPanel(room, document.getElementById("tournament-gacha-panel"), {});
+}
+
+// ---------- อนิเมชันตอนสุ่ม ----------
+function playGachaReveal(machine, items) {
+  const reduce = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  if (!gachaAnimEnabled() || reduce || !items?.length) return Promise.resolve();
+  return new Promise(resolve => {
+    items.forEach(it => { if (it.sprite) { const img = new Image(); img.src = it.sprite; } });
+    const overlay = document.createElement("div");
+    overlay.className = `gacha-overlay ${machine}`;
+    overlay.innerHTML = '<div class="gacha-stage"></div><button type="button" class="gacha-skip">ข้าม ⏭</button>';
+    document.body.appendChild(overlay);
+    const stage = overlay.querySelector(".gacha-stage");
+    const skipBtn = overlay.querySelector(".gacha-skip");
+    const waiters = [];
+    let skipped = false, closed = false, summaryShown = false;
+    const wait = ms => new Promise(res => { const id = setTimeout(res, ms); waiters.push({ id, res }); });
+    const flushWaiters = () => waiters.splice(0).forEach(w => { clearTimeout(w.id); w.res(); });
+    const finish = () => {
+      if (closed) return;
+      closed = true;
+      flushWaiters();
+      overlay.classList.add("closing");
+      setTimeout(() => { overlay.remove(); resolve(); }, 220);
+    };
+    const monCard = (it, cls = "") => `<div class="gacha-card${it.isMega ? " is-mega" : ""} ${cls}"><img src="${escapeHtml(it.sprite || teamSheetSprite(it.displayName))}" alt="${escapeHtml(it.displayName)}" onerror="this.style.visibility='hidden'"><b>${escapeHtml(it.displayName)}</b>${it.isMega ? "<em>✨ MEGA!</em>" : ""}${it.status === "pending" ? "<small>กล่องเต็ม — รอคุณตัดสินใจ</small>" : ""}</div>`;
+    const showSummary = () => {
+      if (closed || summaryShown) return;
+      summaryShown = true;
+      skipBtn.remove();
+      stage.innerHTML = `<div class="gacha-summary">${items.map(it => monCard(it, "small")).join("")}</div><button type="button" class="gacha-done primary">ตกลง</button>`;
+      stage.querySelector(".gacha-done").onclick = finish;
+    };
+    skipBtn.onclick = () => {
+      skipped = true;
+      flushWaiters();
+      if (items.length > 1) showSummary(); else finish();
+    };
+    (async () => {
+      for (let i = 0; i < items.length && !skipped && !closed; i++) {
+        const it = items[i];
+        stage.innerHTML = `<div class="gacha-capsule ${machine}"><span></span></div>${items.length > 1 ? `<p class="gacha-count">${i + 1}/${items.length}</p>` : ""}`;
+        await wait(1100);
+        if (skipped || closed) break;
+        stage.innerHTML = '<div class="gacha-burst"></div>';
+        await wait(260);
+        if (skipped || closed) break;
+        stage.innerHTML = monCard(it) + (items.length > 1 ? `<p class="gacha-count">${i + 1}/${items.length}</p>` : "");
+        await wait(items.length > 1 ? 850 : 1500);
+      }
+      if (skipped || closed) return;
+      if (items.length > 1) showSummary(); else finish();
+    })();
+  });
+}
+
+// ---------- สุ่ม ----------
+// สุ่ม 1 หรือหลายครั้ง: ฝั่งเครื่องสุ่มเลือกตัวก่อน แล้วให้ธุรกรรมตรวจ/ตัดแต้ม/ใส่กล่องแบบอะตอมมิก
+// (ถ้าไม่ให้ซ้ำแล้วมีคนชิงสุ่มตัวเดียวกันไปก่อน จะสุ่มใหม่ให้อัตโนมัติ) ถ้ากล่องเต็มกลางทาง
+// จะหยุดที่ตัวที่ล้น (รอตัดสินใจ) และไม่ตัดแต้มของครั้งที่เหลือ
+async function gachaPull(machine, count = 1) {
+  if (gachaBusy || !currentRoomId || !currentPlayerId) return;
+  gachaBusy = true;
+  renderGachaPanels(latestRoom);
+  try {
+    let revealItems = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const room = (await get(ref(db, "rooms/" + currentRoomId))).val();
+      if (!room) return;
+      const check = gachaCanPull(room, currentPlayerId, machine, count);
+      if (!check.ok) { alert(check.reason); return; }
+      const allowDup = gachaAllowDup(room);
+      const pool = gachaMachinePool(machine).filter(p => allowDup || !room.gachaTaken?.[poolKeyOf(p)]);
+      if (!pool.length) { alert("ตู้นี้ไม่มีโปเกม่อนเหลือแล้ว"); return; }
+      const bag = [...pool], picks = [];
+      for (let i = 0; i < count && bag.length; i++) {
+        const idx = Math.floor(Math.random() * bag.length);
+        picks.push(bag[idx]);
+        if (!allowDup) bag.splice(idx, 1);
+      }
+      const sprites = await Promise.all(picks.map(p => fetchSprite(p)));
+      let outcome = { ok: false, reason: "สุ่มไม่สำเร็จ" };
+      await updateRoom((r) => {
+        const chk = gachaCanPull(r, currentPlayerId, machine, 1);
+        if (!chk.ok) { outcome = chk; return; }
+        const me = r.players[currentPlayerId];
+        const cost = gachaCost(r, machine);
+        const items = [];
+        for (let i = 0; i < picks.length; i++) {
+          if (gachaBalance(r, currentPlayerId) < cost) break;
+          const pick = picks[i], key = poolKeyOf(pick);
+          if (!gachaAllowDup(r) && r.gachaTaken?.[key]) { outcome = { ok: false, retry: true, reason: "taken" }; return; }
+          me.pointsSpent = Number(me.pointsSpent || 0) + cost;
+          if (!gachaAllowDup(r)) { r.gachaTaken = r.gachaTaken || {}; r.gachaTaken[key] = true; }
+          const mon = { id: key, displayName: pick.displayName, isMega: !!pick.isMega, sprite: sprites[i] || "", machine, viaGacha: true };
+          const team = me.team || [];
+          let status;
+          if (team.length < gachaBoxSize(r)) { team.push(mon); me.team = team; status = "added"; }
+          else { me.pendingPull = mon; status = "pending"; }
+          me.lastPull = { ...mon, status, at: Date.now() };
+          gachaPushFeed(r, { kind: "pull", name: me.name || "ผู้เล่น", mon: mon.displayName, isMega: mon.isMega, machine, at: Date.now() });
+          items.push({ displayName: mon.displayName, isMega: mon.isMega, sprite: mon.sprite, machine, status });
+          if (status === "pending") break;
+        }
+        if (!items.length) { outcome = { ok: false, reason: "แต้มไม่พอ" }; return; }
+        outcome = { ok: true, items };
+        return r;
+      });
+      if (outcome.ok) { revealItems = outcome.items; break; }
+      if (!outcome.retry) { alert(outcome.reason); return; }
+    }
+    if (!revealItems) { alert("สุ่มไม่สำเร็จ (มีคนสุ่มชนกันหลายครั้ง) กรุณาลองใหม่"); return; }
+    await playGachaReveal(machine, revealItems);
+  } catch (error) {
+    console.error("gacha pull failed:", error);
+    alert("สุ่มไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่");
+  } finally {
+    gachaBusy = false;
+    renderGachaPanels(latestRoom);
+  }
+}
+
+// กล่องเต็ม: ทิ้งตัวใหม่ หรือแทนที่ตัวในกล่อง (ปกติตัวที่ถูกแทนที่/ถูกทิ้งหายไปถาวร
+// แต่ถ้าห้องเปิดตัวเลือก "คืนเข้าตู้" และเป็นโหมดไม่ซ้ำ ตัวนั้นจะกลับไปให้สุ่มได้อีก)
+async function gachaResolvePending(action, index) {
+  if (gachaBusy || !currentRoomId) return;
+  gachaBusy = true;
+  try {
+    await updateRoom((r) => {
+      const me = r.players?.[currentPlayerId];
+      if (!me || !me.pendingPull) return;
+      const { machine, ...rest } = me.pendingPull;
+      const base = me.lastPull ? { ...me.lastPull } : { ...me.pendingPull };
+      if (action === "replace") {
+        const team = me.team || [];
+        const old = team[index];
+        if (!old) return;
+        team[index] = { ...rest, machine: machine || "normal" };
+        me.team = team;
+        me.lastPull = { ...base, status: "replaced", replacedName: old.displayName || "" };
+        if (gachaReturnOnDrop(r) && old.id && r.gachaTaken) delete r.gachaTaken[old.id];
+      } else {
+        me.lastPull = { ...base, status: "discarded" };
+        if (gachaReturnOnDrop(r) && rest.id && r.gachaTaken) delete r.gachaTaken[rest.id];
+      }
+      me.pendingPull = null;
+      return r;
+    });
+  } catch (error) {
+    console.error("gacha resolve failed:", error);
+    alert("บันทึกไม่สำเร็จ กรุณาลองใหม่");
+  } finally {
+    gachaBusy = false;
+    renderGachaPanels(latestRoom);
+  }
+}
+
+// ---------- แลกเปลี่ยน ----------
+// ขั้นตอน: ชวนแลก -> ต่างฝ่ายเลือกตัวของตัวเอง -> ทั้งคู่กดยืนยัน -> นับถอยหลัง 10 วิ -> สลับตัวให้อัตโนมัติ
+// ถ้ามีใครเปลี่ยนตัวที่เสนอ การยืนยันของทั้งคู่จะรีเซ็ต / ระหว่างนับถอยหลังกดยกเลิกแล้วเลือกใหม่ได้
+function gachaTradeValid(r, t) {
+  const A = r.players?.[t.a], B = r.players?.[t.b];
+  return !!(A && B && !A.pendingPull && !B.pendingPull && !A.withdrawn && !B.withdrawn
+    && t.aIdx >= 0 && t.bIdx >= 0
+    && A.team?.[t.aIdx]?.id === t.aMonId && B.team?.[t.bIdx]?.id === t.bMonId);
+}
+async function gachaTradeOpen(targetPid) {
+  if (gachaTradeBusy || !targetPid || !currentRoomId) return;
+  gachaTradeBusy = true;
+  try {
+    let result = { ok: false, reason: "เริ่มการแลกไม่สำเร็จ" };
+    await updateRoom((r) => {
+      if (!isGachaRoom(r) || !gachaWindowOpen(r)) { result = { ok: false, reason: "แลกเปลี่ยนได้เฉพาะตอนรอเริ่ม หรือช่วงรอระหว่างรอบ" }; return; }
+      if (targetPid === currentPlayerId) return;
+      for (const pid of [currentPlayerId, targetPid]) {
+        const p = r.players?.[pid];
+        if (!p || p.isSpectator || p.withdrawn) { result = { ok: false, reason: "ผู้เล่นคนนี้แลกเปลี่ยนไม่ได้" }; return; }
+        if (p.pendingPull) { result = { ok: false, reason: "ต้องตัดสินใจกับตัวที่สุ่มได้ค้างอยู่ก่อน (ทั้งสองฝ่าย)" }; return; }
+        if (gachaTradeOf(r, pid)) { result = { ok: false, reason: "คุณหรืออีกฝ่ายกำลังแลกกับคนอื่นอยู่" }; return; }
+      }
+      r.gachaTrades = r.gachaTrades || {};
+      r.gachaTrades[generatePlayerId()] = { a: currentPlayerId, b: targetPid, aIdx: -1, bIdx: -1, aMonId: "", bMonId: "", aOk: false, bOk: false, endsAt: 0, createdAt: Date.now() };
+      result = { ok: true };
+      return r;
+    });
+    if (!result.ok) alert(result.reason);
+  } catch (error) {
+    console.error("trade open failed:", error);
+    alert("เริ่มการแลกไม่สำเร็จ กรุณาลองใหม่");
+  } finally {
+    gachaTradeBusy = false;
+    renderGachaPanels(latestRoom);
+  }
+}
+async function gachaTradeUpdate(tradeId, fn) {
+  if (gachaTradeBusy || !currentRoomId) return;
+  gachaTradeBusy = true;
+  try {
+    await updateRoom((r) => {
+      const t = r.gachaTrades?.[tradeId];
+      if (!t || !isGachaRoom(r)) return;
+      const side = t.a === currentPlayerId ? "a" : t.b === currentPlayerId ? "b" : "";
+      if (!side) return;
+      if (fn(r, t, side) === false) return;
+      return r;
+    });
+  } catch (error) {
+    console.error("trade update failed:", error);
+    alert("ทำรายการไม่สำเร็จ กรุณาลองใหม่");
+  } finally {
+    gachaTradeBusy = false;
+    renderGachaPanels(latestRoom);
+  }
+}
+function gachaTradeAct(kind, idx) {
+  const trade = gachaTradeOf(latestRoom, currentPlayerId);
+  if (!trade) return;
+  const id = trade.id;
+  if (kind === "offer") {
+    gachaTradeUpdate(id, (r, t, side) => {
+      const p = r.players[currentPlayerId];
+      const mon = p?.team?.[idx];
+      if (!gachaWindowOpen(r) || !mon || p.pendingPull) return false;
+      t[side + "Idx"] = idx; t[side + "MonId"] = mon.id;
+      t.aOk = false; t.bOk = false; t.endsAt = 0;   // เปลี่ยนตัวเสนอ -> ล้างการยืนยันทั้งคู่
+    });
+  } else if (kind === "confirm") {
+    gachaTradeUpdate(id, (r, t, side) => {
+      if (!gachaWindowOpen(r) || !gachaTradeValid(r, t)) return false;
+      t[side + "Ok"] = true;
+      if (t.aOk && t.bOk) t.endsAt = serverNow() + GACHA_TRADE_COUNTDOWN_MS;
+    });
+  } else if (kind === "unconfirm") {
+    gachaTradeUpdate(id, (r, t) => { t.aOk = false; t.bOk = false; t.endsAt = 0; });
+  } else if (kind === "close") {
+    gachaTradeUpdate(id, (r) => { delete r.gachaTrades[id]; });
+  }
+}
+async function gachaTradeExecute(tradeId) {
+  await updateRoom((r) => {
+    const t = r.gachaTrades?.[tradeId];
+    if (!t) return;
+    if (!gachaWindowOpen(r) || !gachaTradeValid(r, t)) { delete r.gachaTrades[tradeId]; return r; }  // เงื่อนไขพัง -> ยกเลิกแลก
+    if (!t.aOk || !t.bOk || !t.endsAt || serverNow() < t.endsAt) return;                               // ยังไม่ถึงเวลา/ยังไม่ครบยืนยัน
+    const A = r.players[t.a], B = r.players[t.b];
+    const monA = A.team[t.aIdx], monB = B.team[t.bIdx];
+    A.team[t.aIdx] = monB;
+    B.team[t.bIdx] = monA;
+    gachaPushFeed(r, { kind: "trade", name: A.name || "ผู้เล่น", other: B.name || "ผู้เล่น", give: monA.displayName, get: monB.displayName, at: Date.now() });
+    delete r.gachaTrades[tradeId];
+    return r;
+  });
+}
+// ทุกเครื่องในห้องเช็คทุกวินาที: อัปเดตตัวนับถอยหลัง / สั่งสลับตัวเมื่อครบเวลา / เก็บกวาดการแลกที่ค้างหลังเริ่มรอบ
+setInterval(() => {
+  const room = latestRoom;
+  if (!room || !isGachaRoom(room) || !currentPlayerId) return;
+  const t = gachaTradeOf(room, currentPlayerId);
+  if (!t) return;
+  if (!gachaWindowOpen(room)) {
+    if (!gachaStaleClosed.has(t.id)) {
+      gachaStaleClosed.add(t.id);
+      gachaTradeExecute(t.id).catch(e => console.error("trade cleanup failed:", e));
+    }
+    return;
+  }
+  if (!(t.aOk && t.bOk && t.endsAt)) return;
+  const left = t.endsAt - serverNow();
+  document.querySelectorAll("[data-gacha-trade-count]").forEach(el => { el.textContent = Math.max(0, Math.ceil(left / 1000)); });
+  const key = t.id + ":" + t.endsAt;
+  if (left <= 0 && gachaTradeExecKey !== key) {
+    gachaTradeExecKey = key;
+    gachaTradeExecute(t.id).catch(e => { console.error("trade execute failed:", e); gachaTradeExecKey = ""; });
+  }
+}, 1000);
+
+// ---------- ส่วนแสดงผล ----------
+function gachaMonCard(mon, label) {
+  const sprite = mon.sprite || teamSheetSprite(mon.displayName);
+  const dataAttr = mon.sprite ? "" : ` data-poke-name="${escapeHtml(mon.displayName)}"`;
+  const tag = label ?? (mon.machine === "mega" ? "✨ ตู้เมก้า" : mon.machine ? "🎰 ตู้ธรรมดา" : "");
+  return `<img src="${escapeHtml(sprite)}"${dataAttr} alt="${escapeHtml(mon.displayName)}" onerror="this.style.visibility='hidden'"><b>${escapeHtml(mon.displayName)}</b>${tag ? `<small>${tag}</small>` : ""}`;
+}
+
+function gachaMachineViewHtml(room) {
+  const allowDup = gachaAllowDup(room), taken = room.gachaTaken || {};
+  const f = gachaMachineFilter;
+  const section = (machine, title) => {
+    const pool = gachaMachinePool(machine);
+    const isGone = p => !allowDup && !!taken[poolKeyOf(p)];
+    const goneCount = pool.filter(isGone).length;
+    const chips = pool
+      .filter(p => f === "all" || (f === "left" ? !isGone(p) : isGone(p)))
+      .map(p => `<span class="gacha-chip${isGone(p) ? " gone" : ""}">${escapeHtml(p.displayName)}</span>`).join("")
+      || '<span class="small-text">ไม่มีรายการ</span>';
+    return `<div class="gacha-machine-section"><h4>${title} <small>เหลือ ${pool.length - goneCount}/${pool.length}</small></h4><div class="gacha-chips">${chips}</div></div>`;
+  };
+  const filterBtn = (key, label) => `<button type="button" class="gacha-filter${f === key ? " active" : ""}" data-gacha-act="filter" data-filter="${key}">${label}</button>`;
+  const note = allowDup
+    ? "🔁 โหมดนี้สุ่มซ้ำได้ ตู้จึงไม่หมด (รายการด้านล่างคือโปเกม่อนทั้งหมดในแต่ละตู้)"
+    : gachaReturnOnDrop(room)
+      ? "🚫 ไม่ให้ซ้ำ: ตัวที่ถูกสุ่มไปแล้วจะหายจากตู้ แต่ถ้าถูกทิ้ง/ถูกแทนที่จะกลับเข้าตู้ให้สุ่มใหม่ได้"
+      : "🚫 ไม่ให้ซ้ำ: ตัวที่ถูกสุ่มไปแล้ว (รวมตัวที่ถูกทิ้ง/ถูกแทนที่) จะหายจากตู้ถาวร";
+  return `<div class="gacha-machine-view">
+    <p class="small-text">${note}</p>
+    <div class="gacha-filters">${filterBtn("all", "ทั้งหมด")}${filterBtn("left", "ยังอยู่")}${filterBtn("gone", "หายไปแล้ว")}</div>
+    ${section("normal", "🎰 ตู้ร่างธรรมดา")}${section("mega", "✨ ตู้เมก้า")}
+  </div>`;
+}
+
+function gachaFeedHtml(room) {
+  const feed = Array.isArray(room.gachaFeed) ? room.gachaFeed : Object.values(room.gachaFeed || {});
+  if (!feed.length) return "";
+  const items = feed.slice(-10).reverse().map(f => f.kind === "trade"
+    ? `<li>🔄 <b>${escapeHtml(f.name)}</b> แลก <b>${escapeHtml(f.give)}</b> กับ <b>${escapeHtml(f.other)}</b> ได้ <b>${escapeHtml(f.get)}</b></li>`
+    : `<li class="${f.isMega ? "mega" : ""}">${f.machine === "mega" ? "✨" : "🎰"} <b>${escapeHtml(f.name)}</b> สุ่มได้ <b>${escapeHtml(f.mon)}</b>${f.isMega ? " 🌟" : ""}</li>`).join("");
+  return `<div class="gacha-feed"><h4>📜 ฟีดการสุ่ม/แลกล่าสุด</h4><ul>${items}</ul></div>`;
+}
+
+function gachaTradeHtml(room, me, trade, open, pending) {
+  if (!trade) {
+    if (!open) return "";
+    const others = competitivePlayerIds(room).filter(pid => pid !== currentPlayerId && !room.players[pid].withdrawn);
+    const opts = others.map(pid => `<option value="${escapeHtml(pid)}"${pid === gachaTradeTarget ? " selected" : ""}>${escapeHtml(room.players[pid].name)}</option>`).join("");
+    return `<div class="gacha-trade"><h4>🔄 แลกเปลี่ยนโปเกม่อน</h4>${others.length
+      ? `<div class="gacha-trade-start"><select id="gacha-trade-target">${opts}</select><button type="button" data-gacha-act="trade-open" ${pending ? "disabled" : ""}>ชวนแลก</button></div>`
+      : '<p class="small-text">ยังไม่มีผู้เล่นคนอื่นให้แลก</p>'}<p class="small-text">เลือกตัวที่จะแลก → ทั้งคู่กดยืนยัน → นับถอยหลัง 10 วินาที (ยกเลิกแล้วเลือกใหม่ได้)</p></div>`;
+  }
+  const side = trade.a === currentPlayerId ? "a" : "b", otherSide = side === "a" ? "b" : "a";
+  const other = room.players[trade[otherSide]];
+  const myIdx = trade[side + "Idx"], theirIdx = trade[otherSide + "Idx"];
+  const myMon = myIdx >= 0 ? me.team?.[myIdx] : null, theirMon = theirIdx >= 0 ? other?.team?.[theirIdx] : null;
+  const myOk = !!trade[side + "Ok"], theirOk = !!trade[otherSide + "Ok"];
+  const counting = myOk && theirOk && trade.endsAt;
+  const left = counting ? Math.max(0, Math.ceil((trade.endsAt - serverNow()) / 1000)) : 0;
+  const card = mon => mon ? `<div class="gacha-mon${mon.isMega ? " is-mega" : ""}">${gachaMonCard(mon, "")}</div>` : "";
+  let actions;
+  if (counting) actions = `<p class="gacha-countdown">⏱ จะสลับตัวอัตโนมัติใน <b data-gacha-trade-count>${left}</b> วินาที</p><button type="button" class="btn-danger" data-gacha-act="trade-unconfirm">❌ ยกเลิกการยืนยัน (เลือกใหม่)</button>`;
+  else if (myOk) actions = `<p class="small-text">⏳ รอ ${escapeHtml(other?.name || "อีกฝ่าย")} กดยืนยัน</p><button type="button" data-gacha-act="trade-unconfirm">↩ ยกเลิกการยืนยัน</button>`;
+  else actions = `<button type="button" class="primary" data-gacha-act="trade-confirm" ${myMon && theirMon && !pending ? "" : "disabled"}>✅ ยืนยันการแลก</button><p class="small-text">ตรวจตัวของอีกฝ่ายให้ดีก่อนกดยืนยัน — ถ้ามีใครเปลี่ยนตัวที่เสนอ การยืนยันของทั้งคู่จะรีเซ็ตทันที</p>`;
+  return `<div class="gacha-trade active"><h4>🔄 แลกเปลี่ยนกับ ${escapeHtml(other?.name || "ผู้เล่น")}</h4>
+    <div class="gacha-trade-sides">
+      <div class="gacha-trade-side"><span>คุณเสนอ ${myOk ? "✅" : "⏳"}</span>${myMon ? card(myMon) : '<p class="small-text">กดเลือกตัวใน Box ด้านล่าง</p>'}</div>
+      <div class="gacha-trade-arrow">⇄</div>
+      <div class="gacha-trade-side"><span>${escapeHtml(other?.name || "อีกฝ่าย")} เสนอ ${theirOk ? "✅" : "⏳"}</span>${theirMon ? card(theirMon) : '<p class="small-text">รออีกฝ่ายเลือก...</p>'}</div>
+    </div>${actions}
+    <button type="button" class="gacha-trade-close" data-gacha-act="trade-close">🚪 ปิดการแลก</button></div>`;
+}
+
+function renderGachaPanel(room, el, opts = {}) {
+  if (!el) return;
+  if (!isGachaRoom(room)) { el.classList.add("hidden"); el.innerHTML = ""; return; }
+  el.classList.remove("hidden");
+  const me = room.players?.[currentPlayerId];
+  const isPlayer = !!me && !me.isSpectator;
+  const boxSize = gachaBoxSize(room), allowDup = gachaAllowDup(room);
+  const team = me?.team || [];
+  const pending = me?.pendingPull || null;
+  const open = gachaWindowOpen(room);
+  const balance = isPlayer ? gachaBalance(room, currentPlayerId) : 0;
+  const costN = gachaCost(room, "normal"), costM = gachaCost(room, "mega");
+  const taken = room.gachaTaken || {};
+  const leftOf = machine => gachaMachinePool(machine).filter(p => !taken[poolKeyOf(p)]).length;
+  const trade = isPlayer ? gachaTradeOf(room, currentPlayerId) : null;
+  const tradeSide = trade ? (trade.a === currentPlayerId ? "a" : "b") : "";
+  const tradeMyIdx = trade ? trade[tradeSide + "Idx"] : -1;
+  const tradeMyOk = trade ? !!trade[tradeSide + "Ok"] : false;
+  const tradeCounting = !!(trade && trade.aOk && trade.bOk);
+
+  const machineBtn = (machine, label, cost, count) => {
+    const left = allowDup ? 99 : leftOf(machine);
+    const disabled = !isPlayer || !open || !!pending || tradeCounting || balance < cost * count || gachaBusy || left < 1;
+    const sub = count === 1 && !allowDup ? `<small>เหลือ ${left}</small>` : "";
+    return `<button type="button" class="gacha-machine-btn ${machine}${count > 1 ? " multi" : ""}" data-gacha-act="pull" data-machine="${machine}" data-count="${count}" ${disabled ? "disabled" : ""}><span>${count > 1 ? `×${count}` : label}</span><b>${cost * count}P</b>${sub}</button>`;
+  };
+
+  let status;
+  if (!isPlayer) status = "👀 คุณอยู่ในโหมดดูอย่างเดียว (ดูตู้ ฟีด และ Box ของผู้เล่นได้)";
+  else if (pending) status = "⚠️ กล่องเต็ม — เลือกทิ้งตัวใหม่ หรือกดตัวในกล่องเพื่อแทนที่";
+  else if (!open) status = "🔒 ล็อกระหว่างแข่ง — สุ่ม/แลกได้ตอนทุกคู่ยืนยันผลครบ และก่อนโฮสต์กดเริ่มรอบถัดไป";
+  else if (balance < Math.min(costN, costM)) status = "💸 แต้มไม่พอสุ่ม (ชนะแมตช์เพื่อรับแต้มเพิ่ม)";
+  else status = "🟢 สุ่มได้ตอนนี้";
+
+  const dupRule = allowDup ? "สุ่มซ้ำได้" : gachaReturnOnDrop(room) ? "ไม่ซ้ำ (ตัวที่ทิ้ง/ถูกแทนที่กลับเข้าตู้)" : "ไม่ซ้ำ (ตัวที่สุ่มแล้วหายจากตู้)";
+  let html = `<div class="gacha-head"><h3>🎰 ตู้สุ่มโปเกม่อน</h3>${isPlayer ? `<span class="gacha-points">💰 ${balance}P</span>` : ""}</div>
+    <p class="small-text">คนละ ${Number(room.settings?.gachaStartPoints ?? 20)}P • ตู้ธรรมดา ${costN}P • ตู้เมก้า ${costM}P • ${dupRule} • Box ${boxSize} ช่อง • ต้องมีอย่างน้อย ${GACHA_MIN_TO_START} ตัวถึงเริ่มได้</p>
+    <p class="gacha-status">${status}</p>`;
+
+  if (isPlayer) {
+    html += `<div class="gacha-machines">
+      <div class="gacha-machine">${machineBtn("normal", "🎰 ตู้ร่างธรรมดา", costN, 1)}${machineBtn("normal", "", costN, GACHA_MULTI)}</div>
+      <div class="gacha-machine">${machineBtn("mega", "✨ ตู้เมก้า", costM, 1)}${machineBtn("mega", "", costM, GACHA_MULTI)}</div>
+    </div>
+    <label class="gacha-anim-toggle"><input type="checkbox" data-gacha-act="anim-toggle" ${gachaAnimEnabled() ? "checked" : ""}> เปิดอนิเมชันตอนสุ่ม</label>`;
+    const lp = me.lastPull;
+    if (lp) {
+      const text = lp.status === "added" ? "ได้เข้า Box แล้ว"
+        : lp.status === "pending" ? "รอคุณตัดสินใจ (กล่องเต็ม)"
+        : lp.status === "replaced" ? `แทนที่ ${escapeHtml(lp.replacedName || "ตัวเดิม")} แล้ว`
+        : "ทิ้งไปแล้ว";
+      html += `<div class="gacha-last"><span class="gacha-last-title">ครั้งล่าสุด • ${text}</span><div class="gacha-mon${lp.isMega ? " is-mega" : ""}">${gachaMonCard(lp)}</div></div>`;
+    }
+    if (pending) {
+      html += `<div class="gacha-pending"><b>📦 กล่องเต็ม! เพิ่งสุ่มได้</b><div class="gacha-mon is-new${pending.isMega ? " is-mega" : ""}">${gachaMonCard(pending)}</div>
+        <button type="button" class="btn-danger gacha-discard" data-gacha-act="discard">🗑 ทิ้งตัวใหม่</button>
+        <p class="small-text">หรือกดที่ตัวใน Box ด้านล่างเพื่อ "แทนที่" (${gachaReturnOnDrop(room) ? "ตัวที่ถูกแทนที่จะกลับเข้าตู้" : "ตัวที่ถูกแทนที่จะหายไปถาวร"})</p></div>`;
+    }
+    const slots = [];
+    for (let i = 0; i < boxSize; i++) {
+      const mon = team[i];
+      const mega = mon?.isMega ? " is-mega" : "";
+      if (!mon) slots.push('<div class="gacha-empty-slot">ว่าง</div>');
+      else if (pending) slots.push(`<button type="button" class="gacha-mon replaceable${mega}" data-gacha-act="replace" data-idx="${i}">${gachaMonCard(mon, "↔ แทนที่ตัวนี้")}</button>`);
+      else if (trade && !tradeMyOk) slots.push(`<button type="button" class="gacha-mon tradeable${mega}${i === tradeMyIdx ? " offered" : ""}" data-gacha-act="trade-offer" data-idx="${i}">${gachaMonCard(mon, i === tradeMyIdx ? "✅ ตัวที่เสนอ" : "🔄 เสนอตัวนี้")}</button>`);
+      else slots.push(`<div class="gacha-mon${mega}${trade && i === tradeMyIdx ? " offered" : ""}">${gachaMonCard(mon, trade && i === tradeMyIdx ? "✅ ตัวที่เสนอ" : undefined)}</div>`);
+    }
+    html += `<h4 class="gacha-box-title">📦 Box ของคุณ (${team.length}/${boxSize})</h4><div class="gacha-box-grid">${slots.join("")}</div>`;
+    html += gachaTradeHtml(room, me, trade, open, pending);
+  }
+
+  html += `<button type="button" class="gacha-view-toggle" data-gacha-act="toggle-machines">${gachaMachineViewOpen ? "🙈 ซ่อนตู้" : "📖 ดูตู้ (โปเกม่อนที่ยังอยู่/หายไปแล้ว)"}</button>`;
+  if (gachaMachineViewOpen) html += gachaMachineViewHtml(room);
+  html += gachaFeedHtml(room);
+
+  if (opts.showAllBoxes) {
+    const rows = competitivePlayerIds(room).map(pid => {
+      const p = room.players[pid], n = (p.team || []).length;
+      return `<div class="gacha-player-row"><span>${escapeHtml(p.name)}${pid === room.hostId ? ' <span class="badge">HOST</span>' : ""} <small>📦 ${n}/${boxSize}</small></span>${n ? teamPreviewHtml(p, "gacha-" + pid) : ""}</div>`;
+    }).join("");
+    html += `<div class="gacha-all-boxes"><h4>👥 Box ของผู้เล่นทุกคน</h4>${rows || '<p class="small-text">ยังไม่มีผู้เล่น</p>'}</div>`;
+  }
+
+  el.innerHTML = html;
+  gachaOpenPreviews.forEach(key => el.querySelector(`[id="team-preview-${key}"]`)?.classList.remove("hidden"));
+
+  el.onchange = (event) => {
+    if (event.target?.id === "gacha-trade-target") gachaTradeTarget = event.target.value;
+  };
+  el.onclick = (event) => {
+    const target = event.target.closest("[data-gacha-act],[data-team-toggle]");
+    if (!target || target.disabled) return;
+    const live = latestRoom;
+    if (target.dataset.teamToggle) {
+      const key = target.dataset.teamToggle;
+      const preview = el.querySelector(`[id="team-preview-${key}"]`);
+      if (!preview) return;
+      preview.classList.toggle("hidden");
+      if (preview.classList.contains("hidden")) gachaOpenPreviews.delete(key); else gachaOpenPreviews.add(key);
+      return;
+    }
+    const act = target.dataset.gachaAct;
+    if (act === "pull") gachaPull(target.dataset.machine, Number(target.dataset.count || 1));
+    else if (act === "discard") {
+      if (confirm(gachaReturnOnDrop(live) ? "ทิ้งตัวที่เพิ่งสุ่มได้ใช่หรือไม่? ตัวนี้จะกลับเข้าตู้" : "ทิ้งตัวที่เพิ่งสุ่มได้ใช่หรือไม่? ตัวนี้จะหายไปจากตู้ถาวร")) gachaResolvePending("discard");
+    } else if (act === "replace") {
+      const idx = Number(target.dataset.idx);
+      const mine = live?.players?.[currentPlayerId];
+      const oldName = mine?.team?.[idx]?.displayName || "ตัวนี้";
+      const newName = mine?.pendingPull?.displayName || "ตัวใหม่";
+      if (confirm(`แทนที่ ${oldName} ด้วย ${newName} ใช่หรือไม่? ${oldName} จะ${gachaReturnOnDrop(live) ? "กลับเข้าตู้" : "หายไปถาวร"}`)) gachaResolvePending("replace", idx);
+    } else if (act === "toggle-machines") { gachaMachineViewOpen = !gachaMachineViewOpen; renderGachaPanels(live); }
+    else if (act === "filter") { gachaMachineFilter = target.dataset.filter || "all"; renderGachaPanels(live); }
+    else if (act === "anim-toggle") gachaSetAnim(!!target.checked);
+    else if (act === "trade-open") {
+      const sel = el.querySelector("#gacha-trade-target");
+      if (sel?.value) { gachaTradeTarget = sel.value; gachaTradeOpen(sel.value); }
+    }
+    else if (act === "trade-offer") gachaTradeAct("offer", Number(target.dataset.idx));
+    else if (act === "trade-confirm") gachaTradeAct("confirm");
+    else if (act === "trade-unconfirm") gachaTradeAct("unconfirm");
+    else if (act === "trade-close") gachaTradeAct("close");
+  };
+}
+
+// =====================================================================
+// Team Builder + การ์ดชีททีม (สไตล์ VGCode)
+// - ข้อมูลอ้างอิงดึงอัตโนมัติจาก Pokémon Showdown (pokedex / moves / items / abilities)
+// - สร้างทีมเอง หรือวางโค้ดจาก Showdown ได้ / เก็บได้คนละ 3 ทีม (ต้องล็อกอิน) ที่ userTeams/{uid}
+// - การ์ดเดียวกันถูกใช้ตอนดูชีทระหว่างแข่ง (ไม่โชว์ตัวเลข EV แสดงเฉพาะสีของนิสัย)
+// =====================================================================
+const SHOWDOWN_DATA_URL = "https://play.pokemonshowdown.com/data/";
+const SHEET_STATS = ["hp", "atk", "def", "spa", "spd", "spe"];
+const SHEET_STAT_LABELS = { hp: "HP", atk: "Atk", def: "Def", spa: "SpA", spd: "SpD", spe: "Spe" };
+// นิสัย -> [สเตตัสที่เพิ่ม, สเตตัสที่ลด] (null = นิสัยกลาง)
+const SHEET_NATURES = {
+  adamant: ["atk", "spa"], bashful: null, bold: ["def", "atk"], brave: ["atk", "spe"], calm: ["spd", "atk"],
+  careful: ["spd", "spa"], docile: null, gentle: ["spd", "def"], hardy: null, hasty: ["spe", "def"],
+  impish: ["def", "spa"], jolly: ["spe", "spa"], lax: ["def", "spd"], lonely: ["atk", "def"], mild: ["spa", "def"],
+  modest: ["spa", "atk"], naive: ["spe", "spd"], naughty: ["atk", "spd"], quiet: ["spa", "spe"], quirky: null,
+  rash: ["spa", "spd"], relaxed: ["def", "spe"], sassy: ["spd", "spe"], serious: null, timid: ["spe", "atk"]
+};
+const SHEET_NATURE_NAMES = Object.keys(SHEET_NATURES).map(n => n[0].toUpperCase() + n.slice(1));
+const SHEET_TYPE_COLORS = {
+  Normal: "#a8a77a", Fire: "#ee8130", Water: "#6390f0", Electric: "#f7d02c", Grass: "#7ac74c", Ice: "#96d9d6",
+  Fighting: "#c22e28", Poison: "#a33ea1", Ground: "#e2bf65", Flying: "#a98ff3", Psychic: "#f95587", Bug: "#a6b91a",
+  Rock: "#b6a136", Ghost: "#735797", Dragon: "#6f35fc", Dark: "#705746", Steel: "#b7b7ce", Fairy: "#d685ad", Stellar: "#40b5a5"
+};
+const SHEET_TARGETS = {
+  normal: "One adjacent target", any: "Any one target", adjacentAlly: "One adjacent ally", adjacentAllyOrSelf: "Self or one adjacent ally",
+  adjacentFoe: "One adjacent opponent", allAdjacentFoes: "All adjacent opponents", allAdjacent: "All adjacent Pokémon", self: "User",
+  all: "Entire field", allySide: "User's side", allyTeam: "User's team", foeSide: "Opponent's side", randomNormal: "Random opponent",
+  scripted: "Depends on the move", allies: "All allies"
+};
+function toID(text) { return String(text ?? "").toLowerCase().replace(/[^a-z0-9]+/g, ""); }
+function sheetNature(nature) {
+  const v = SHEET_NATURES[toID(nature)];
+  return v ? { plus: v[0], minus: v[1] } : null;
+}
+
+// ---------- โหลดข้อมูลอ้างอิงจาก Pokémon Showdown ----------
+const DEX = { ready: false, failed: false, failedAt: 0, pokedex: {}, moves: {}, items: {}, abilities: {}, megaIndex: {}, speciesNames: [], itemNames: [], moveNames: [] };
+let dexPromise = null;
+let dexScriptQueue = Promise.resolve();
+// ไฟล์ data/*.js ของ Showdown เป็น exports.BattleXxx = {...}; โหลดผ่าน <script> ได้โดยไม่ติด CORS (โหลดทีละไฟล์กัน exports ชนกัน)
+function dexLoadScript(file, globalName) {
+  const run = () => new Promise((resolve, reject) => {
+    const prev = window.exports, holder = {};
+    window.exports = holder;
+    const el = document.createElement("script");
+    const done = () => { window.exports = prev; el.remove(); };
+    el.onload = () => { done(); holder[globalName] ? resolve(holder[globalName]) : reject(new Error("missing " + globalName)); };
+    el.onerror = () => { done(); reject(new Error("cannot load " + file)); };
+    el.src = SHOWDOWN_DATA_URL + file + ".js";
+    document.head.appendChild(el);
+  });
+  const p = dexScriptQueue.then(run, run);
+  dexScriptQueue = p.catch(() => {});
+  return p;
+}
+function loadDex() {
+  if (DEX.ready) return Promise.resolve(DEX);
+  if (DEX.failed && Date.now() - DEX.failedAt < 60000) return Promise.reject(new Error("dex unavailable"));
+  if (!dexPromise) {
+    dexPromise = (async () => {
+      const files = ["pokedex", "moves", "items", "abilities"];
+      const json = await Promise.all(files.map(f => fetch(SHOWDOWN_DATA_URL + f + ".json").then(r => (r.ok ? r.json() : null)).catch(() => null)));
+      const hasDesc = d => !!d && Object.values(d).some(v => v && (v.shortDesc || v.desc));
+      // ถ้า JSON ไม่มีคำอธิบายท่า/ไอเทม/อบิลิตี้ ให้ใช้ไฟล์ .js แทน
+      const pokedex = json[0] || await dexLoadScript("pokedex", "BattlePokedex");
+      const moves = hasDesc(json[1]) ? json[1] : await dexLoadScript("moves", "BattleMovedex");
+      const items = hasDesc(json[2]) ? json[2] : await dexLoadScript("items", "BattleItems");
+      const abilities = hasDesc(json[3]) ? json[3] : await dexLoadScript("abilities", "BattleAbilities");
+      DEX.pokedex = pokedex; DEX.moves = moves; DEX.items = items; DEX.abilities = abilities;
+      DEX.megaIndex = {};
+      Object.values(pokedex).forEach(sp => {
+        if (!sp || !sp.name || !/^Mega/.test(sp.forme || "")) return;
+        const reqs = sp.requiredItems || (sp.requiredItem ? [sp.requiredItem] : []);
+        reqs.forEach(it => { DEX.megaIndex[`${toID(sp.baseSpecies)}|${toID(it)}`] = sp; });
+      });
+      DEX.speciesNames = Object.values(pokedex)
+        .filter(sp => sp && sp.name && sp.num > 0 && !/^(Mega|Gmax|Primal|Totem)/.test(sp.forme || ""))
+        .sort((a, b) => a.num - b.num || a.name.localeCompare(b.name)).map(sp => sp.name);
+      DEX.itemNames = Object.values(items).filter(i => i && i.name).map(i => i.name).sort();
+      DEX.moveNames = Object.values(moves).filter(m => m && m.name && !m.isZ && !m.isMax).map(m => m.name).sort();
+      DEX.ready = true;
+      return DEX;
+    })().catch(error => {
+      DEX.failed = true; DEX.failedAt = Date.now(); dexPromise = null;
+      console.error("load pokemon data failed:", error);
+      throw error;
+    });
+  }
+  return dexPromise;
+}
+function dexSpecies(name) { return DEX.ready ? (DEX.pokedex[toID(name)] || null) : null; }
+function dexMove(name) { return DEX.ready ? (DEX.moves[toID(name)] || null) : null; }
+function dexItem(name) { return DEX.ready ? (DEX.items[toID(name)] || null) : null; }
+function dexAbility(name) { return DEX.ready ? (DEX.abilities[toID(name)] || null) : null; }
+
+// ---------- Showdown import / export ----------
+function parseSheetEvs(line) {
+  const evs = {};
+  String(line).replace(/^evs:\s*/i, "").split("/").forEach(part => {
+    const m = part.trim().match(/^(\d+)\s*(HP|Atk|Def|SpA|SpD|Spe)$/i);
+    if (m) evs[m[2].toLowerCase()] = Number(m[1]);
+  });
+  return Object.keys(evs).length ? evs : null;
+}
+function parseShowdownTeam(text) {
+  const raw = String(text || "").replace(/\r/g, "").trim();
+  if (!raw) return [];
+  // รูปแบบเก่า: ชื่อ|ท่า,ท่า|ไอเทม|นิสัย
+  if (raw.includes("|")) {
+    return parseTeamProfile(raw).map(p => ({ species: p.pokemon, nickname: "", gender: "", item: p.item || "", ability: "", nature: p.nature || "", level: "", moves: (p.moves || []).slice(0, 4), evs: null }));
+  }
+  return raw.split(/\n\s*\n/).map(block => {
+    const lines = block.split("\n").map(l => l.trim()).filter(Boolean);
+    if (!lines.length) return null;
+    const mon = { species: "", nickname: "", gender: "", item: "", ability: "", nature: "", level: "", moves: [], evs: null };
+    const parts = lines[0].split(/\s+@\s+/);
+    let head = parts[0].trim();
+    mon.item = (parts[1] || "").trim();
+    const g = head.match(/\s+\((M|F)\)\s*$/i);
+    if (g) { mon.gender = g[1].toUpperCase(); head = head.slice(0, g.index).trim(); }
+    const nick = head.match(/^(.*)\s+\(([^()]+)\)\s*$/);
+    if (nick) { mon.nickname = nick[1].trim(); mon.species = nick[2].trim(); } else mon.species = head;
+    lines.slice(1).forEach(line => {
+      if (/^ability:/i.test(line)) mon.ability = line.replace(/^ability:\s*/i, "").trim();
+      else if (/^level:/i.test(line)) mon.level = line.replace(/^level:\s*/i, "").trim();
+      else if (/^evs:/i.test(line)) mon.evs = parseSheetEvs(line);
+      else if (/\bnature$/i.test(line)) mon.nature = line.replace(/\s*nature$/i, "").trim();
+      else if (/^-\s*/.test(line)) mon.moves.push(line.replace(/^-\s*/, "").trim());
+    });
+    mon.moves = mon.moves.slice(0, 4);
+    return mon.species ? mon : null;
+  }).filter(Boolean).slice(0, 6);
+}
+function sheetEvLine(evs) {
+  return SHEET_STATS.filter(k => Number(evs?.[k]) > 0).map(k => `${Number(evs[k])} ${SHEET_STAT_LABELS[k]}`).join(" / ");
+}
+function exportShowdownTeam(mons) {
+  return (mons || []).filter(m => m?.species).map(m => {
+    const head = (m.nickname ? `${m.nickname} (${m.species})` : m.species) + (m.gender ? ` (${m.gender})` : "") + (m.item ? ` @ ${m.item}` : "");
+    const lines = [head];
+    if (m.ability) lines.push(`Ability: ${m.ability}`);
+    if (m.level) lines.push(`Level: ${m.level}`);
+    const evs = sheetEvLine(m.evs);
+    if (evs) lines.push(`EVs: ${evs}`);
+    if (m.nature) lines.push(`${m.nature} Nature`);
+    (m.moves || []).filter(Boolean).forEach(mv => lines.push(`- ${mv}`));
+    return lines.join("\n");
+  }).join("\n\n");
+}
+// ชีทที่ผู้เล่นส่งในห้อง -> รายการโปเกม่อน (ใช้ teamSheet ที่ตัด EV แล้วก่อน)
+function sheetMonsOf(player) {
+  return parseShowdownTeam(player?.teamSheet || player?.teamText || "");
+}
+
+// ---------- การ์ดชีท ----------
+const sheetRegistry = new Map();
+const sheetSpriteResolved = new Map();
+function sheetForms(mon) {
+  const sp = dexSpecies(mon.species);
+  if (!sp) return { base: null, mega: null, species: null };
+  if (/^Mega/.test(sp.forme || "")) return { base: dexSpecies(sp.baseSpecies) || sp, mega: sp, species: sp };
+  return { base: sp, mega: DEX.megaIndex[`${toID(sp.name)}|${toID(mon.item)}`] || null, species: sp };
+}
+function sheetDisplay(st, mon, idx) {
+  const forms = sheetForms(mon);
+  const defaultMega = !!(forms.mega && forms.species === forms.mega);
+  const megaOn = !!forms.mega && (st.mega[idx] ?? defaultMega);
+  const entry = megaOn ? forms.mega : (forms.base || forms.species);
+  const ability = megaOn ? (forms.mega.abilities?.["0"] || mon.ability) : mon.ability;
+  return { forms, megaOn, entry, name: entry?.name || mon.species, ability: ability || "", types: entry?.types || [] };
+}
+function sheetTypeBadge(type) {
+  return `<span class="type-badge" style="--tc:${SHEET_TYPE_COLORS[type] || "#888"}">${escapeHtml(type)}</span>`;
+}
+function sheetItemIconHtml(itemName) {
+  const it = dexItem(itemName);
+  if (!it || typeof it.spritenum !== "number") return "";
+  return `<span class="item-icon" style="background-position:-${(it.spritenum % 16) * 24}px -${Math.floor(it.spritenum / 16) * 24}px"></span>`;
+}
+function sheetNatureBarHtml(mon, showEvs) {
+  const nat = sheetNature(mon.nature);
+  const withValues = showEvs && mon.evs && SHEET_STATS.some(k => Number(mon.evs[k]) > 0);
+  const stats = SHEET_STATS.map(k => `<span class="sheet-stat ${nat?.plus === k ? "up" : nat?.minus === k ? "down" : ""}"><small>${SHEET_STAT_LABELS[k]}</small>${withValues ? `<b>${Number(mon.evs[k]) || 0}</b>` : ""}</span>`).join("");
+  return `<span class="sheet-nature">${escapeHtml(mon.nature || "-")} <small>Nature</small></span><span class="sheet-stats">${withValues ? "<em>EVs</em>" : ""}${stats}</span>`;
+}
+function sheetCardHtml(st, mon, idx) {
+  const d = sheetDisplay(st, mon, idx);
+  const active = st.focus && st.focus.mon === idx;
+  const src = sheetSpriteResolved.get(d.name) || teamSheetSprite(d.name);
+  const moves = (mon.moves || []).filter(Boolean).map((mv, i) => {
+    const info = dexMove(mv);
+    const color = info ? (SHEET_TYPE_COLORS[info.type] || "#999") : "#bdb8cc";
+    const on = active && st.focus.kind === "move" && st.focus.move === i;
+    return `<li><button type="button" class="sheet-move${on ? " on" : ""}" data-sheet-move="${i}"><i style="background:${color}"></i>${escapeHtml(mv)}</button></li>`;
+  }).join("");
+  return `<article class="sheet-card${active ? " active" : ""}${d.megaOn ? " is-mega" : ""}" data-sheet-card="${idx}">
+    <header data-sheet-mon="${idx}"><img class="sheet-sprite" src="${escapeHtml(src)}" data-poke-name="${escapeHtml(d.name)}" alt="${escapeHtml(d.name)}" onerror="this.style.visibility='hidden'"><h4>${escapeHtml(d.name)}</h4><div class="sheet-types">${d.types.map(sheetTypeBadge).join("")}</div></header>
+    <div class="sheet-body">
+      <div class="sheet-info"><span class="sheet-label">Ability</span><button type="button" class="sheet-link" data-sheet-ability="${idx}">${escapeHtml(d.ability || "-")}</button><span class="sheet-label">Held item</span><button type="button" class="sheet-link" data-sheet-item="${idx}">${escapeHtml(mon.item || "-")}${sheetItemIconHtml(mon.item)}</button></div>
+      <ul class="sheet-moves">${moves || '<li class="small-text">ไม่มีข้อมูลท่า</li>'}</ul>
+      <span class="sheet-index">${idx + 1}</span>
+    </div>
+    <footer>${sheetNatureBarHtml(mon, st.showEvs)}</footer>
+  </article>`;
+}
+function sheetPanelHtml(st) {
+  const f = st.focus, mon = st.mons[f.mon];
+  const close = '<button type="button" class="sheet-close" data-sheet-close aria-label="ปิด">✕</button>';
+  if (!DEX.ready) return `${close}<p class="small-text">${DEX.failed ? "โหลดข้อมูลโปเกม่อนไม่สำเร็จ ลองรีเฟรชหน้าเว็บ" : "กำลังโหลดข้อมูล..."}</p>`;
+  if (f.kind === "move") {
+    const name = mon.moves?.[f.move], mv = dexMove(name);
+    if (!mv) return `${close}<div class="sheet-panel-label">MOVE</div><h3>${escapeHtml(name || "-")}</h3><p class="small-text">ไม่พบข้อมูลท่านี้ในฐานข้อมูลอ้างอิง</p>`;
+    return `${close}<div class="sheet-panel-label">MOVE</div><h3>${escapeHtml(mv.name)}</h3>
+      <p class="sheet-sub"><b style="color:${SHEET_TYPE_COLORS[mv.type] || "#777"}">${escapeHtml(mv.type)}</b> · ${escapeHtml(mv.category)}</p>
+      <div class="sheet-facts"><div><small>Power</small><b>${mv.basePower || "—"}</b></div><div><small>Accuracy</small><b>${mv.accuracy === true ? "—" : mv.accuracy}</b></div><div><small>Priority</small><b>${mv.priority ?? 0}</b></div><div><small>PP</small><b>${mv.pp ?? "—"}</b></div></div>
+      <p class="sheet-target">Target: ${escapeHtml(SHEET_TARGETS[mv.target] || mv.target || "-")}</p>
+      ${mv.shortDesc ? `<p class="sheet-short">${escapeHtml(mv.shortDesc)}</p>` : ""}
+      ${mv.desc ? `<details class="sheet-more"><summary>Full reference mechanics (English)</summary><p>${escapeHtml(mv.desc)}</p></details>` : ""}
+      <p class="sheet-note">ข้อมูลอ้างอิงจาก Pokémon Showdown อาจต่างจากเกมจริงหลังมีการอัปเดต</p>`;
+  }
+  if (f.kind === "item") {
+    const it = dexItem(mon.item);
+    return `${close}<div class="sheet-panel-label">HELD ITEM</div><h3>${sheetItemIconHtml(mon.item)} ${escapeHtml(it?.name || mon.item || "-")}</h3>${it?.shortDesc ? `<p class="sheet-short">${escapeHtml(it.shortDesc)}</p>` : '<p class="small-text">ไม่พบข้อมูลไอเทมนี้</p>'}${it?.desc ? `<details class="sheet-more"><summary>Full reference mechanics (English)</summary><p>${escapeHtml(it.desc)}</p></details>` : ""}`;
+  }
+  if (f.kind === "ability") {
+    const d = sheetDisplay(st, mon, f.mon), ab = dexAbility(d.ability);
+    return `${close}<div class="sheet-panel-label">ABILITY</div><h3>${escapeHtml(ab?.name || d.ability || "-")}</h3>${ab?.shortDesc ? `<p class="sheet-short">${escapeHtml(ab.shortDesc)}</p>` : '<p class="small-text">ไม่พบข้อมูลอบิลิตี้นี้</p>'}${ab?.desc ? `<details class="sheet-more"><summary>Full reference mechanics (English)</summary><p>${escapeHtml(ab.desc)}</p></details>` : ""}`;
+  }
+  // POKÉMON FOCUS
+  const d = sheetDisplay(st, mon, f.mon), nat = sheetNature(mon.nature);
+  const natHint = nat ? `${SHEET_STAT_LABELS[nat.plus]} ↑ · ${SHEET_STAT_LABELS[nat.minus]} ↓` : "นิสัยกลาง";
+  const stats = d.entry?.baseStats, baseStats = d.megaOn ? d.forms.base?.baseStats : null;
+  const src = sheetSpriteResolved.get(d.name) || teamSheetSprite(d.name);
+  let bars = "";
+  if (stats) {
+    bars = SHEET_STATS.map(k => {
+      const v = stats[k], delta = baseStats ? v - baseStats[k] : null;
+      return `<div class="sheet-stat-row"><span>${SHEET_STAT_LABELS[k]}</span><div class="sheet-bar"><i style="width:${Math.min(100, v / 255 * 100)}%"></i></div><b>${v}</b>${delta === null ? "<em></em>" : `<em class="${delta > 0 ? "plus" : delta < 0 ? "minus" : ""}">${delta > 0 ? "+" : ""}${delta}</em>`}</div>`;
+    }).join("");
+    const total = SHEET_STATS.reduce((sum, k) => sum + stats[k], 0);
+    const baseTotal = baseStats ? SHEET_STATS.reduce((sum, k) => sum + baseStats[k], 0) : null;
+    bars += `<div class="sheet-stat-row total"><span>BST</span><div></div><b>${total}</b>${baseTotal === null ? "<em></em>" : `<em class="${total - baseTotal > 0 ? "plus" : ""}">${total - baseTotal > 0 ? "+" : ""}${total - baseTotal}</em>`}</div>`;
+  }
+  return `${close}<div class="sheet-panel-label">POKÉMON FOCUS</div>
+    <img class="sheet-big" src="${escapeHtml(src)}" data-poke-name="${escapeHtml(d.name)}" alt="${escapeHtml(d.name)}" onerror="this.style.visibility='hidden'">
+    <h3 class="sheet-focus-name">${escapeHtml(d.name)}</h3>
+    ${d.forms.mega ? `<button type="button" class="sheet-mega-btn" data-sheet-mega="${f.mon}">✦ ${d.megaOn ? "Normal form" : "Mega Evolve"}</button>` : ""}
+    <div class="sheet-row"><span>Ability</span><b>${escapeHtml(d.ability || "-")}</b></div>
+    <div class="sheet-row"><span>Nature</span><b>${escapeHtml(mon.nature || "-")}</b><small>${natHint}</small></div>
+    ${bars ? `<p class="sheet-sub">Base stats · form comparison</p>${bars}` : '<p class="small-text">ไม่พบค่าสเตตัสของโปเกม่อนตัวนี้</p>'}`;
+}
+function sheetViewerInner(id) {
+  const st = sheetRegistry.get(id);
+  if (!st) return "";
+  if (st.focus && !st.mons[st.focus.mon]) st.focus = null;
+  const head = (st.title || st.code) ? `<div class="sheet-title">${st.title ? `<h3>${escapeHtml(st.title)}</h3>` : ""}${st.code ? `<p>Team ID: ${escapeHtml(st.code)}</p>` : ""}</div>` : "";
+  const cards = st.mons.map((m, i) => sheetCardHtml(st, m, i)).join("") || '<p class="small-text">ยังไม่มีโปเกม่อนในทีม</p>';
+  return `${head}<div class="sheet-layout"><div class="sheet-grid">${cards}</div>${st.focus ? `<aside class="sheet-side">${sheetPanelHtml(st)}</aside>` : ""}</div>`;
+}
+// id ต้องคงที่ต่อจุดแสดงผล เพื่อให้จำสถานะ (โปเกม่อนที่เปิดดู/เมก้า) ข้ามการเรนเดอร์ใหม่ได้
+function sheetViewerHtml(id, mons, opts = {}) {
+  const prev = sheetRegistry.get(id);
+  sheetRegistry.set(id, { mons: mons || [], showEvs: !!opts.showEvs, title: opts.title || "", code: opts.code || "", focus: prev?.focus || null, mega: prev?.mega || {} });
+  return `<div class="sheet-viewer" data-sheet-id="${escapeHtml(id)}" data-dex="${DEX.ready ? 1 : 0}">${sheetViewerInner(id)}</div>`;
+}
+async function hydrateSheetSprites(root) {
+  await hydratePokeApiSprites(root);
+  root.querySelectorAll("img[data-poke-name]").forEach(img => sheetSpriteResolved.set(img.dataset.pokeName, img.src));
+}
+function refreshSheetViewer(id) {
+  document.querySelectorAll(".sheet-viewer").forEach(v => {
+    if (v.dataset.sheetId !== id) return;
+    v.innerHTML = sheetViewerInner(id);
+    v.dataset.dex = DEX.ready ? "1" : "0";
+    hydrateSheetSprites(v);
+  });
+}
+// เติมข้อมูลธาตุ/ไอคอนไอเทม/สีท่า/เมก้า หลังโหลดข้อมูลอ้างอิงเสร็จ (เฉพาะการ์ดที่มองเห็นอยู่)
+function hydrateSheetViewer(v) {
+  if (!v || !v.isConnected) return;
+  if (v.getClientRects().length === 0) return;
+  if (v.dataset.dex === "1") { hydrateSheetSprites(v); return; }
+  hydrateSheetSprites(v);
+  loadDex().then(() => refreshSheetViewer(v.dataset.sheetId)).catch(() => { /* ใช้การ์ดแบบพื้นฐานต่อไป */ });
+}
+document.addEventListener("click", (event) => {
+  const t = event.target;
+  const viewer = t.closest?.(".sheet-viewer");
+  if (!viewer) return;
+  const id = viewer.dataset.sheetId, st = sheetRegistry.get(id);
+  if (!st) return;
+  const card = t.closest("[data-sheet-card]");
+  const monIdx = card ? Number(card.dataset.sheetCard) : null;
+  let changed = true;
+  if (t.closest("[data-sheet-close]")) st.focus = null;
+  else if (t.closest("[data-sheet-mega]")) {
+    const i = Number(t.closest("[data-sheet-mega]").dataset.sheetMega);
+    st.mega[i] = !sheetDisplay(st, st.mons[i], i).megaOn;
+  }
+  else if (t.closest("[data-sheet-move]")) st.focus = { kind: "move", mon: monIdx, move: Number(t.closest("[data-sheet-move]").dataset.sheetMove) };
+  else if (t.closest("[data-sheet-item]")) st.focus = { kind: "item", mon: monIdx };
+  else if (t.closest("[data-sheet-ability]")) st.focus = { kind: "ability", mon: monIdx };
+  else if (t.closest("[data-sheet-mon]")) st.focus = { kind: "mon", mon: monIdx };
+  else changed = false;
+  if (!changed) return;
+  refreshSheetViewer(id);
+  if (!DEX.ready) loadDex().then(() => refreshSheetViewer(id)).catch(() => refreshSheetViewer(id));
+});
+if (typeof MutationObserver !== "undefined") {
+  new MutationObserver(mutations => {
+    for (const m of mutations) for (const node of m.addedNodes) {
+      if (node.nodeType !== 1) continue;
+      const viewers = node.matches?.(".sheet-viewer") ? [node] : [...(node.querySelectorAll?.(".sheet-viewer") || [])];
+      viewers.forEach(hydrateSheetViewer);
+    }
+  }).observe(document.body, { childList: true, subtree: true });
+}
+
+// ---------- Team Builder ----------
+const TB_LIMIT = 3;
+const builder = { uid: "", failedAt: 0, loaded: false, loading: null, teams: {}, view: "list", editingId: null, draft: null, slot: 0, previewTimer: null };
+function tbBlankMon() { return { species: "", nickname: "", gender: "", item: "", ability: "", nature: "", level: "", moves: ["", "", "", ""], evs: null }; }
+function tbBlankDraft() { return { name: "", code: "", evMode: "sp", mons: Array.from({ length: 6 }, tbBlankMon) }; }
+function tbNormalizeMon(m) {
+  const base = tbBlankMon();
+  const moves = Array.from(m?.moves || []).slice(0, 4);
+  while (moves.length < 4) moves.push("");
+  return { ...base, ...(m || {}), moves: moves.map(x => String(x || "")), evs: m?.evs ? { ...m.evs } : null };
+}
+function tbNormalizeTeam(t) {
+  const mons = Array.from(t?.mons || []).slice(0, 6).map(tbNormalizeMon);
+  while (mons.length < 6) mons.push(tbBlankMon());
+  return { name: t?.name || "", code: t?.code || "", evMode: t?.evMode === "ev" ? "ev" : "sp", mons, createdAt: t?.createdAt || 0, updatedAt: t?.updatedAt || 0 };
+}
+function ensureMyTeamsLoaded(force = false) {
+  if (!currentUser) return Promise.resolve({});
+  if (builder.uid !== currentUser.uid) { builder.uid = currentUser.uid; builder.loaded = false; builder.loading = null; builder.teams = {}; }
+  if (builder.loaded && !force) return Promise.resolve(builder.teams);
+  if (!force && builder.failedAt && Date.now() - builder.failedAt < 60000) return Promise.reject(new Error("teams unavailable"));
+  if (!builder.loading || force) {
+    builder.loading = get(ref(db, `userTeams/${currentUser.uid}`)).then(snap => {
+      const raw = snap.val() || {};
+      builder.teams = Object.fromEntries(Object.entries(raw).map(([id, t]) => [id, tbNormalizeTeam(t)]));
+      builder.loaded = true;
+      builder.failedAt = 0;
+      return builder.teams;
+    }).catch(error => { builder.loading = null; builder.failedAt = Date.now(); throw error; });
+  }
+  return builder.loading;
+}
+function tbSortedTeams() { return Object.entries(builder.teams).sort((a, b) => (b[1].updatedAt || 0) - (a[1].updatedAt || 0)); }
+function tbEvLimits(mode) { return mode === "ev" ? { per: 252, total: 510 } : { per: 32, total: 66 }; }
+function tbEvTotal(m) { return SHEET_STATS.reduce((sum, k) => sum + (Number(m.evs?.[k]) || 0), 0); }
+function tbCleanMons() {
+  return builder.draft.mons.filter(m => m.species.trim()).map(m => ({
+    ...m, species: m.species.trim(), moves: m.moves.map(x => x.trim()).filter(Boolean),
+    evs: tbEvTotal(m) > 0 ? { ...m.evs } : null
+  }));
+}
+function tbRecordFromDraft() {
+  const d = builder.draft;
+  return {
+    name: d.name.trim().slice(0, 60), code: d.code.trim().slice(0, 30), evMode: d.evMode,
+    mons: d.mons.map(m => {
+      const out = { species: m.species.trim(), nickname: m.nickname || "", gender: m.gender || "", item: m.item.trim(), ability: m.ability.trim(), nature: m.nature.trim(), level: m.level || "", moves: m.moves.map(x => x.trim()) };
+      if (tbEvTotal(m) > 0) out.evs = Object.fromEntries(SHEET_STATS.filter(k => Number(m.evs?.[k]) > 0).map(k => [k, Number(m.evs[k])]));
+      return out;
+    })
+  };
+}
+
+function tbOptionHtml(names) { return names.map(n => `<option value="${escapeHtml(n)}"></option>`).join(""); }
+function tbFillDatalists() {
+  const set = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
+  const species = DEX.ready ? DEX.speciesNames : POKEMON_LIST.filter(p => !p.isMega).map(p => p.displayName);
+  set("tb-dl-species", tbOptionHtml(species));
+  set("tb-dl-items", tbOptionHtml(DEX.itemNames));
+  set("tb-dl-moves", tbOptionHtml(DEX.moveNames));
+  tbFillAbilityList(builder.draft?.mons?.[builder.slot]?.species);
+}
+function tbFillAbilityList(species) {
+  const el = document.getElementById("tb-dl-abilities");
+  if (!el) return;
+  const sp = dexSpecies(species);
+  el.innerHTML = sp ? tbOptionHtml(Object.values(sp.abilities || {})) : "";
+}
+
+function tbListHtml() {
+  const teams = tbSortedTeams();
+  const cards = teams.map(([id, t]) => {
+    const names = t.mons.filter(m => m.species).map(m => `<span class="tb-chip">${escapeHtml(m.species)}</span>`).join("");
+    return `<div class="tb-team-card"><div><b>${escapeHtml(t.name || "ทีมไม่มีชื่อ")}</b>${t.code ? ` <small>Team ID: ${escapeHtml(t.code)}</small>` : ""}<div class="tb-chips">${names || '<small>ยังไม่มีโปเกม่อน</small>'}</div></div>
+      <div class="tb-team-actions"><button type="button" class="btn-leave-small" data-tb="edit" data-id="${escapeHtml(id)}">✏️ เปิด/แก้ไข</button><button type="button" class="btn-leave-small" data-tb="copy-saved" data-id="${escapeHtml(id)}">📋 คัดลอก Showdown</button><button type="button" class="btn-kick" data-tb="delete" data-id="${escapeHtml(id)}">🗑 ลบ</button></div></div>`;
+  }).join("");
+  const full = teams.length >= TB_LIMIT;
+  return `<div class="tb-head"><h2>🧩 Team Builder</h2><button type="button" class="btn-leave-small" data-tb="close">✕ ปิด</button></div>
+    <p class="small-text">สร้างชีททีมสไตล์การ์ด หรือวางโค้ดจาก Pokémon Showdown ได้ • เก็บได้คนละ ${TB_LIMIT} ทีม (ตอนนี้ ${teams.length}/${TB_LIMIT}) • ใช้ส่งเป็น Team Sheet ในห้องได้</p>
+    <div class="tb-list">${cards || '<p class="small-text">ยังไม่มีทีมที่บันทึกไว้</p>'}</div>
+    <button type="button" class="primary" data-tb="new" ${full ? "disabled" : ""}>➕ สร้างทีมใหม่</button>
+    ${full ? '<p class="small-text">ครบ 3 ทีมแล้ว ลบทีมเก่าก่อนถึงจะสร้างทีมใหม่ได้</p>' : ""}`;
+}
+function tbSlotFormHtml() {
+  const d = builder.draft, m = d.mons[builder.slot], lim = tbEvLimits(d.evMode);
+  const natOpts = '<option value="">— ไม่ระบุ —</option>' + SHEET_NATURE_NAMES.map(n => {
+    const nat = sheetNature(n);
+    return `<option value="${n}"${toID(m.nature) === toID(n) ? " selected" : ""}>${n}${nat ? ` (${SHEET_STAT_LABELS[nat.plus]}↑ ${SHEET_STAT_LABELS[nat.minus]}↓)` : ""}</option>`;
+  }).join("");
+  const evs = SHEET_STATS.map(k => `<label class="tb-ev"><span>${SHEET_STAT_LABELS[k]}</span><input type="number" inputmode="numeric" min="0" max="${lim.per}" placeholder="0" data-tb-field="ev:${k}" value="${Number(m.evs?.[k]) > 0 ? Number(m.evs[k]) : ""}"></label>`).join("");
+  const moves = [0, 1, 2, 3].map(i => `<input type="text" list="tb-dl-moves" placeholder="ท่าที่ ${i + 1}" data-tb-field="move${i}" value="${escapeHtml(m.moves[i] || "")}" autocomplete="off">`).join("");
+  return `<div class="tb-slot-form">
+    <label class="field-label">โปเกม่อน</label><input type="text" list="tb-dl-species" placeholder="พิมพ์ชื่อ เช่น Garchomp" data-tb-field="species" value="${escapeHtml(m.species)}" autocomplete="off">
+    <div class="tb-two"><div><label class="field-label">ไอเทม</label><input type="text" list="tb-dl-items" placeholder="เช่น Garchompite Z" data-tb-field="item" value="${escapeHtml(m.item)}" autocomplete="off"></div>
+    <div><label class="field-label">อบิลิตี้</label><input type="text" list="tb-dl-abilities" placeholder="เช่น Rough Skin" data-tb-field="ability" value="${escapeHtml(m.ability)}" autocomplete="off"></div></div>
+    <label class="field-label">นิสัย</label><select data-tb-field="nature">${natOpts}</select>
+    <label class="field-label">ท่า (4 ท่า)</label><div class="tb-moves">${moves}</div>
+    <label class="field-label">EV (ใส่หรือไม่ใส่ก็ได้) <small id="tb-ev-total">รวม ${tbEvTotal(m)}/${lim.total}</small></label><div class="tb-evs">${evs}</div>
+    <button type="button" class="btn-leave-small" data-tb="clear-slot">🧹 ล้างช่องนี้</button></div>`;
+}
+function tbEditorHtml() {
+  const d = builder.draft;
+  const tabs = d.mons.map((m, i) => `<button type="button" class="tb-slot-tab${i === builder.slot ? " active" : ""}" data-tb="slot" data-i="${i}">${i + 1}. ${escapeHtml(m.species || "ว่าง")}</button>`).join("");
+  return `<div class="tb-head"><h2>${builder.editingId ? "✏️ แก้ไขทีม" : "➕ สร้างทีมใหม่"}</h2><button type="button" class="btn-leave-small" data-tb="back">⬅ กลับรายการทีม</button></div>
+    <div class="tb-two"><div><label class="field-label">ชื่อทีม</label><input type="text" maxlength="60" placeholder="เช่น My Regional Team" data-tb-field="name" value="${escapeHtml(d.name)}"></div>
+    <div><label class="field-label">โค้ดทีม (Team ID)</label><input type="text" maxlength="30" placeholder="เช่น 9979J V2YPM" data-tb-field="code" value="${escapeHtml(d.code)}"></div></div>
+    <details class="tb-import"><summary>📥 วางทีมจาก Pokémon Showdown (นำเข้าแทนการกรอกเอง)</summary>
+      <textarea id="tb-import-text" rows="10" placeholder="วางโค้ดทีมจาก Pokémon Showdown ที่นี่ (EV ใส่หรือไม่ใส่ก็ได้)"></textarea>
+      <button type="button" class="primary" data-tb="import">นำเข้าทีมนี้</button></details>
+    <label class="field-label">หน่วยของค่า EV</label>
+    <select data-tb-field="evmode"><option value="sp"${d.evMode === "sp" ? " selected" : ""}>Stat Points (สูงสุด 32 ต่อค่า รวม 66)</option><option value="ev"${d.evMode === "ev" ? " selected" : ""}>EV แบบเดิม (สูงสุด 252 ต่อค่า รวม 510)</option></select>
+    <div class="tb-slot-tabs">${tabs}</div>
+    <div id="tb-slot-form">${tbSlotFormHtml()}</div>
+    <datalist id="tb-dl-species"></datalist><datalist id="tb-dl-items"></datalist><datalist id="tb-dl-moves"></datalist><datalist id="tb-dl-abilities"></datalist>
+    <h3 class="tb-preview-title">ตัวอย่างชีท (กดท่า/โปเกม่อนเพื่อดูรายละเอียด)</h3>
+    <div id="tb-preview"></div>
+    <div class="tb-actions"><button type="button" class="primary" data-tb="save">💾 บันทึกทีม</button><button type="button" class="btn-leave-small" data-tb="copy">📋 คัดลอกเป็นโค้ด Showdown</button></div>`;
+}
+function tbRender() {
+  const panel = document.getElementById("tb-panel");
+  if (!panel) return;
+  panel.innerHTML = builder.view === "edit" ? tbEditorHtml() : tbListHtml();
+  if (builder.view === "edit") { tbFillDatalists(); tbUpdatePreview(); }
+}
+function tbUpdatePreview() {
+  const el = document.getElementById("tb-preview");
+  if (!el) return;
+  const d = builder.draft;
+  el.innerHTML = sheetViewerHtml("builder", tbCleanMons(), { showEvs: true, title: d.name.trim(), code: d.code.trim() });
+}
+function tbSchedulePreview() {
+  clearTimeout(builder.previewTimer);
+  builder.previewTimer = setTimeout(tbUpdatePreview, 150);
+}
+function openTeamBuilder() {
+  if (!currentUser) {
+    if (confirm("ต้องเข้าสู่ระบบด้วย Google ก่อนถึงจะใช้ Team Builder และเก็บทีมได้ ต้องการเข้าสู่ระบบตอนนี้ไหม?")) document.getElementById("btn-login")?.click();
+    return;
+  }
+  const root = document.getElementById("screen-teambuilder");
+  root.classList.remove("hidden");
+  document.body.classList.add("tb-open");
+  builder.view = "list";
+  const panel = document.getElementById("tb-panel");
+  panel.innerHTML = '<p class="small-text">กำลังโหลดทีมของคุณ...</p>';
+  ensureMyTeamsLoaded(true).then(() => tbRender()).catch(error => {
+    console.error("load teams failed:", error);
+    panel.innerHTML = '<div class="tb-head"><h2>🧩 Team Builder</h2><button type="button" class="btn-leave-small" data-tb="close">✕ ปิด</button></div><p class="error">โหลดทีมไม่สำเร็จ (ตรวจอินเทอร์เน็ต และตรวจว่าอัปเดต Database Rules ส่วน userTeams แล้ว)</p>';
+  });
+  loadDex().then(() => { if (builder.view === "edit") { tbFillDatalists(); tbUpdatePreview(); } }).catch(() => {});
+}
+function closeTeamBuilder() {
+  document.getElementById("screen-teambuilder")?.classList.add("hidden");
+  document.body.classList.remove("tb-open");
+}
+async function tbCopyText(text) {
+  try { await navigator.clipboard.writeText(text); alert("คัดลอกโค้ดทีมแล้ว"); }
+  catch (e) { prompt("คัดลอกโค้ดทีมด้านล่างนี้", text); }
+}
+async function tbSave() {
+  const d = builder.draft;
+  if (!d.name.trim()) { alert("กรุณาตั้งชื่อทีม"); return; }
+  if (!d.mons.some(m => m.species.trim())) { alert("ใส่โปเกม่อนอย่างน้อย 1 ตัวก่อนบันทึก"); return; }
+  if (!builder.editingId && Object.keys(builder.teams).length >= TB_LIMIT) { alert(`เก็บทีมได้สูงสุด ${TB_LIMIT} ทีม ลบทีมเก่าก่อน`); return; }
+  const id = builder.editingId || `t${Date.now().toString(36)}`;
+  const now = Date.now();
+  const record = { ...tbRecordFromDraft(), updatedAt: now, createdAt: builder.teams[id]?.createdAt || now };
+  try {
+    await set(ref(db, `userTeams/${currentUser.uid}/${id}`), record);
+    builder.teams[id] = tbNormalizeTeam(record);
+    builder.editingId = id;
+    alert("บันทึกทีมแล้ว");
+    builder.view = "list";
+    tbRender();
+  } catch (error) {
+    console.error("save team failed:", error);
+    alert("บันทึกไม่สำเร็จ (ตรวจอินเทอร์เน็ต และตรวจว่าอัปเดต Database Rules ส่วน userTeams แล้ว)");
+  }
+}
+(function initTeamBuilder() {
+  const root = document.getElementById("screen-teambuilder");
+  if (!root) return;
+  document.getElementById("btn-open-teambuilder")?.addEventListener("click", openTeamBuilder);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !root.classList.contains("hidden") && !document.querySelector(".gacha-overlay")) closeTeamBuilder(); });
+  root.addEventListener("click", async (event) => {
+    if (event.target === root) { closeTeamBuilder(); return; }
+    const btn = event.target.closest("[data-tb]");
+    if (!btn || btn.disabled) return;
+    const act = btn.dataset.tb;
+    if (act === "close") closeTeamBuilder();
+    else if (act === "back") { builder.view = "list"; tbRender(); }
+    else if (act === "new") {
+      if (Object.keys(builder.teams).length >= TB_LIMIT) return;
+      builder.editingId = null; builder.draft = tbBlankDraft(); builder.slot = 0; builder.view = "edit"; tbRender();
+    } else if (act === "edit") {
+      const t = builder.teams[btn.dataset.id]; if (!t) return;
+      builder.editingId = btn.dataset.id; builder.draft = tbNormalizeTeam(t); builder.slot = 0; builder.view = "edit"; tbRender();
+    } else if (act === "delete") {
+      const t = builder.teams[btn.dataset.id];
+      if (!t || !confirm(`ลบทีม "${t.name || "ทีมไม่มีชื่อ"}" ใช่หรือไม่?`)) return;
+      try { await set(ref(db, `userTeams/${currentUser.uid}/${btn.dataset.id}`), null); delete builder.teams[btn.dataset.id]; tbRender(); }
+      catch (error) { console.error("delete team failed:", error); alert("ลบไม่สำเร็จ กรุณาลองใหม่"); }
+    } else if (act === "copy-saved") {
+      const t = builder.teams[btn.dataset.id]; if (t) tbCopyText(exportShowdownTeam(t.mons));
+    } else if (act === "slot") {
+      builder.slot = Number(btn.dataset.i);
+      document.querySelectorAll(".tb-slot-tab").forEach(b => b.classList.toggle("active", Number(b.dataset.i) === builder.slot));
+      document.getElementById("tb-slot-form").innerHTML = tbSlotFormHtml();
+      tbFillAbilityList(builder.draft.mons[builder.slot].species);
+    } else if (act === "clear-slot") {
+      builder.draft.mons[builder.slot] = tbBlankMon();
+      document.getElementById("tb-slot-form").innerHTML = tbSlotFormHtml();
+      const tab = document.querySelector(`.tb-slot-tab[data-i="${builder.slot}"]`); if (tab) tab.textContent = `${builder.slot + 1}. ว่าง`;
+      tbUpdatePreview();
+    } else if (act === "import") {
+      const mons = parseShowdownTeam(document.getElementById("tb-import-text").value);
+      if (!mons.length) { alert("อ่านโค้ดทีมไม่ได้ ตรวจรูปแบบจาก Pokémon Showdown อีกครั้ง"); return; }
+      const padded = mons.map(tbNormalizeMon);
+      while (padded.length < 6) padded.push(tbBlankMon());
+      builder.draft.mons = padded;
+      // ถ้ามีค่าเกิน 32 ต่อค่า หรือรวมเกิน 66 แปลว่าเป็น EV แบบเดิม
+      const legacy = padded.some(m => SHEET_STATS.some(k => Number(m.evs?.[k]) > 32) || tbEvTotal(m) > 66);
+      builder.draft.evMode = legacy ? "ev" : "sp";
+      builder.slot = 0; tbRender();
+    } else if (act === "save") tbSave();
+    else if (act === "copy") tbCopyText(exportShowdownTeam(tbCleanMons()));
+  });
+  root.addEventListener("input", (event) => {
+    const field = event.target.dataset?.tbField;
+    if (!field || !builder.draft) return;
+    const d = builder.draft, m = d.mons[builder.slot], value = event.target.value;
+    if (field === "name") d.name = value;
+    else if (field === "code") d.code = value;
+    else if (field === "species" || field === "item" || field === "ability") m[field] = value;
+    else if (field === "nature") m.nature = value;
+    else if (field.startsWith("move")) m.moves[Number(field.slice(4))] = value;
+    else if (field.startsWith("ev:")) {
+      const key = field.slice(3), lim = tbEvLimits(d.evMode);
+      m.evs = m.evs || {};
+      const others = SHEET_STATS.reduce((sum, k) => sum + (k === key ? 0 : (Number(m.evs[k]) || 0)), 0);
+      let n = Math.max(0, Math.floor(Number(value) || 0));
+      n = Math.min(n, lim.per, Math.max(0, lim.total - others));
+      m.evs[key] = n;
+      if (String(n) !== value && value !== "") event.target.value = n;
+      const totalEl = document.getElementById("tb-ev-total"); if (totalEl) totalEl.textContent = `รวม ${tbEvTotal(m)}/${lim.total}`;
+    } else return;
+    tbSchedulePreview();
+  });
+  root.addEventListener("change", (event) => {
+    const field = event.target.dataset?.tbField;
+    if (!field || !builder.draft) return;
+    const d = builder.draft, m = d.mons[builder.slot];
+    if (field === "evmode") {
+      d.evMode = event.target.value === "ev" ? "ev" : "sp";
+      const lim = tbEvLimits(d.evMode);
+      d.mons.forEach(mon => { if (mon.evs) SHEET_STATS.forEach(k => { if (Number(mon.evs[k]) > lim.per) mon.evs[k] = lim.per; }); });
+      document.getElementById("tb-slot-form").innerHTML = tbSlotFormHtml();
+      tbUpdatePreview();
+    } else if (field === "species") {
+      tbFillAbilityList(m.species);
+      const sp = dexSpecies(m.species);
+      if (sp && !m.ability.trim()) {
+        m.ability = Object.values(sp.abilities || {})[0] || "";
+        const abilityInput = root.querySelector('[data-tb-field="ability"]'); if (abilityInput) abilityInput.value = m.ability;
+      }
+      const tab = document.querySelector(`.tb-slot-tab[data-i="${builder.slot}"]`); if (tab) tab.textContent = `${builder.slot + 1}. ${m.species.trim() || "ว่าง"}`;
+      tbUpdatePreview();
+    }
+  });
+})();
+
+// ---------- เลือกจากทีมที่บันทึกไว้ ตอนส่ง Team Sheet ----------
+function savedTeamOptionsHtml() {
+  return tbSortedTeams().map(([id, t]) => `<option value="${escapeHtml(id)}">${escapeHtml(t.name || "ทีมไม่มีชื่อ")}${t.code ? ` (${escapeHtml(t.code)})` : ""} • ${t.mons.filter(m => m.species).length} ตัว</option>`).join("");
+}
+
+function refreshLobbySavedTeams() {
+  const row = document.getElementById("lobby-saved-team-row");
+  if (!row) return;
+  if (!currentUser) { row.classList.add("hidden"); return; }
+  if (!builder.loaded) { ensureMyTeamsLoaded().then(() => { if (latestRoom) refreshLobbySavedTeams(); }).catch(() => {}); return; }
+  const sel = document.getElementById("lobby-saved-team-select"), html = savedTeamOptionsHtml();
+  row.classList.toggle("hidden", !html);
+  if (sel && sel.dataset.sig !== html) { sel.innerHTML = html; sel.dataset.sig = html; }
+}
+document.getElementById("btn-load-saved-team")?.addEventListener("click", () => {
+  const t = builder.teams[document.getElementById("lobby-saved-team-select")?.value];
+  const input = document.getElementById("lobby-team-input");
+  if (t && input) { input.value = exportShowdownTeam(t.mons); input.focus(); }
+});
+function evSavedPicker() {
+  if (!currentUser) return "";
+  if (!builder.loaded) { ensureMyTeamsLoaded().then(() => { if (openEventId) renderEventDetail(); }).catch(() => {}); return ""; }
+  const html = savedTeamOptionsHtml();
+  return html ? `<div class="saved-team-row"><select id="ev-saved-team">${html}</select><button type="button" class="btn-leave-small" data-ev-act="load-saved-team">📂 ใช้ทีมที่บันทึกไว้</button></div>` : "";
 }
