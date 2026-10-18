@@ -903,7 +903,7 @@ function renderTournamentAuctionTeams(room) {
   const perRow = (room.settings.teamSize || 10) === 6 ? 3 : 5;
   summary.innerHTML = `<div class="auction-summary-heading"><div><h3>🎒 ทีมจากการประมูล</h3><p class="small-text">โปเกม่อนที่ผู้เล่นแต่ละคนได้จากการประมูล — เรียง ${perRow} ตัวต่อแถว</p></div></div><div class="auction-team-grid">${players.map(pid => {
     const player = room.players[pid], team = player.team || [];
-    return `<article class="auction-team-card"><header><div><b>${escapeHtml(player.name)}</b>${pid === room.hostId ? ' <span class="badge">HOST</span>' : ''}</div><span>${team.length}/${room.settings.teamSize || 10} ตัว</span></header><div class="auction-team-roster team-size-${room.settings.teamSize || 10}">${team.map(member => `<div class="auction-team-mon"><img src="${member.sprite}" alt=""><b>${escapeHtml(member.displayName)}</b>${member.isMega ? '<small>🌟 MEGA</small>' : ''}${member.price ? `<small>💰 ${Number(member.price).toLocaleString()}</small>` : (member.viaTicket ? '<small>🎫 ตั๋ว</small>' : (member.viaRandom ? '<small>🎲 สุ่ม</small>' : (member.viaGift ? '<small>🎁 ของขวัญ</small>' : '')))}</div>`).join("") || '<p class="small-text">ยังไม่มีโปเกม่อน</p>'}</div></article>`;
+    return `<article class="auction-team-card"><header><div><b>${escapeHtml(player.name)}</b>${pid === room.hostId ? ' <span class="badge">HOST</span>' : ''}</div><span>${team.length}/${room.settings.teamSize || 10} ตัว</span></header><div class="auction-team-roster team-size-${room.settings.teamSize || 10}">${team.map(member => `<div class="auction-team-mon"><img src="${member.sprite}" alt=""><b>${escapeHtml(member.displayName)}</b>${monTypesHtml(member)}${member.isMega ? '<small>🌟 MEGA</small>' : ''}${member.price ? `<small>💰 ${Number(member.price).toLocaleString()}</small>` : (member.viaTicket ? '<small>🎫 ตั๋ว</small>' : (member.viaRandom ? '<small>🎲 สุ่ม</small>' : (member.viaGift ? '<small>🎁 ของขวัญ</small>' : '')))}</div>`).join("") || '<p class="small-text">ยังไม่มีโปเกม่อน</p>'}</div></article>`;
   }).join("")}</div>`;
   const showView = view => {
     currentTournamentView = view;
@@ -1651,6 +1651,7 @@ function renderGame(room) {
     document.getElementById("auc-img").src = revealAuctionPokemon ? a.sprite : "";
     document.getElementById("auc-img").alt = revealAuctionPokemon ? a.displayName : "โปเกม่อนลับ";
     document.getElementById("auc-img").classList.toggle("auction-secret-image", !revealAuctionPokemon);
+    const aucTypes = document.getElementById("auc-types"); if (aucTypes) aucTypes.innerHTML = revealAuctionPokemon ? monTypesHtml(a) : "";
     document.getElementById("auc-name").innerHTML = revealAuctionPokemon ? a.displayName + (a.isMega ? '<span class="mega-tag">MEGA</span>' : '') : "❓ โปเกม่อนลับ";
     document.getElementById("auc-nominator").textContent = `เสนอโดย: ${a.nominatedByName}`;
     document.getElementById("auc-bid").textContent = a.currentBidderId
@@ -1784,7 +1785,7 @@ function teamSlotHtml(t, edit) {
   return `<div class="team-slot${edit ? ' editable' : ''}${t.viaGift ? ' gifted-slot' : ''}">
     ${removeBtn}
     <img src="${t.sprite}" alt="">
-    <span>${escapeHtml(t.displayName)}${t.isMega ? ' 🌟' : ''}</span>
+    <span>${escapeHtml(t.displayName)}${t.isMega ? ' 🌟' : ''}</span>${monTypesHtml(t)}
     ${tag}
   </div>`;
 }
@@ -1807,7 +1808,7 @@ function renderOthersTeams(room) {
       return `<div class="team-summary-card">
         <h4>${escapeHtml(p.name)}${pid === room.hostId ? ' <span class="badge">HOST</span>' : ''}</h4>
         <p class="small-text">💰${(p.money || 0).toLocaleString()} | 🎒${team.length}/${teamSize}</p>
-        <div class="my-team">${body}</div>
+        <div class="my-team size-${teamSize}">${body}</div>
       </div>`;
     }).join("") || '<p class="archives-empty">ไม่มีผู้เล่นคนอื่น</p>';
 
@@ -1867,7 +1868,7 @@ function renderPool(room, isMyTurn, me) {
     const conceal = hidePokemon && !amSpectator && (poke.status === "auctioning" || (poke.status === "available" && !canChoosePokemon));
     let html = conceal
       ? '<div class="secret-pokemon">❓</div><div class="name">โปเกม่อนลับ</div>'
-      : `<img src="${poke.sprite}" alt=""><div class="name">${poke.displayName}${poke.isMega ? '<br><span class="mega-tag">MEGA</span>' : ''}</div>`;
+      : `<img src="${poke.sprite}" alt=""><div class="name">${poke.displayName}${poke.isMega ? '<br><span class="mega-tag">MEGA</span>' : ''}</div>${monTypesHtml(poke)}`;
 
     if (poke.status === "owned") {
       html += `<div class="owner-tag">👤 ${room.players[poke.ownerId]?.name || "?"}</div>`;
@@ -1908,6 +1909,7 @@ function renderPool(room, isMyTurn, me) {
 
 function renderMyTeam(me, teamSize) {
   const grid = document.getElementById("my-team-grid");
+  grid.className = "my-team size-" + teamSize;   // 10 ตัว = 5 ต่อแถว 2 แถว / 6 ตัว = 3 ต่อแถว 2 แถว
   grid.innerHTML = "";
   const team = me.team || [];
   for (let i = 0; i < teamSize; i++) {
@@ -1915,7 +1917,7 @@ function renderMyTeam(me, teamSize) {
     const slot = document.createElement("div");
     slot.className = "team-slot" + (t ? "" : " empty");
     slot.innerHTML = t
-      ? `<img src="${t.sprite}" alt=""><span>${t.displayName}${t.isMega ? ' 🌟' : ''}</span>`
+      ? `<img src="${t.sprite}" alt=""><span>${t.displayName}${t.isMega ? ' 🌟' : ''}</span>${monTypesHtml(t)}`
       : "ว่าง";
     grid.appendChild(slot);
   }
@@ -1968,11 +1970,11 @@ function renderTeamsSummary(room) {
     <article class="team-summary-card draft-team-card">
       <div class="draft-team-heading"><div><h4>${escapeHtml(p.name)}${pid === room.hostId ? ' <span class="badge">HOST</span>' : ''}</h4><p class="small-text">ทีมจากการประมูล</p></div><div class="team-count-badge">${(p.team || []).length}/${room.settings.teamSize}</div></div>
       <div class="draft-team-meta"><span>💰 ${(p.money || 0).toLocaleString()}</span><span>🎒 ${(p.team || []).length} ตัว</span></div>
-      <div class="draft-team-roster">
+      <div class="draft-team-roster size-${room.settings?.teamSize || 10}">
         ${(p.team || []).map(t => `
           <div class="team-slot draft-pokemon-card">
             <img src="${t.sprite}" alt="">
-            <span>${t.displayName}${t.isMega ? ' 🌟' : ''}</span>
+            <span>${t.displayName}${t.isMega ? ' 🌟' : ''}</span>${monTypesHtml(t)}
             ${t.price ? `<span class="price-tag">💰${t.price.toLocaleString()}</span>` : (t.viaTicket ? '<span class="price-tag">🎫 ตั๋ว</span>' : (t.viaRandom ? '<span class="price-tag">🎲 สุ่มให้</span>' : (t.viaGift ? '<span class="price-tag">🎁 ของขวัญ</span>' : '')))}
           </div>`).join("")}
       </div>
@@ -2899,7 +2901,7 @@ function renderSpectateDraftTeams(room) {
   if (!grid) return;
   grid.innerHTML = Object.entries(room.players || {}).filter(([, player]) => !player.isSpectator).map(([playerId, player]) => {
     const team = player.team || [];
-    return `<article class="team-summary-card draft-team-card"><div class="draft-team-heading"><div><h4>${escapeHtml(player.name)}${playerId === room.hostId ? ' <span class="badge">HOST</span>' : ''}</h4><p class="small-text">ทีมจากการประมูล</p></div><div class="team-count-badge">${team.length}/${room.settings?.teamSize || 10}</div></div><div class="draft-team-meta"><span>💰 ${(player.money || 0).toLocaleString()}</span><span>🎒 ${team.length} ตัว</span></div><div class="draft-team-roster">${team.map(member => `<div class="team-slot draft-pokemon-card"><img src="${member.sprite}" alt=""><span>${escapeHtml(member.displayName)}${member.isMega ? ' 🌟' : ''}</span>${member.price ? `<span class="price-tag">💰${member.price.toLocaleString()}</span>` : (member.viaTicket ? '<span class="price-tag">🎫 ตั๋ว</span>' : (member.viaRandom ? '<span class="price-tag">🎲 สุ่มให้</span>' : (member.viaGift ? '<span class="price-tag">🎁 ของขวัญ</span>' : '')))}</div>`).join("") || '<span class="small-text">ยังไม่มีโปเกม่อนจากการประมูล</span>'}</div></article>`;
+    return `<article class="team-summary-card draft-team-card"><div class="draft-team-heading"><div><h4>${escapeHtml(player.name)}${playerId === room.hostId ? ' <span class="badge">HOST</span>' : ''}</h4><p class="small-text">ทีมจากการประมูล</p></div><div class="team-count-badge">${team.length}/${room.settings?.teamSize || 10}</div></div><div class="draft-team-meta"><span>💰 ${(player.money || 0).toLocaleString()}</span><span>🎒 ${team.length} ตัว</span></div><div class="draft-team-roster size-${room.settings?.teamSize || 10}">${team.map(member => `<div class="team-slot draft-pokemon-card"><img src="${member.sprite}" alt=""><span>${escapeHtml(member.displayName)}${member.isMega ? ' 🌟' : ''}</span>${monTypesHtml(member)}${member.price ? `<span class="price-tag">💰${member.price.toLocaleString()}</span>` : (member.viaTicket ? '<span class="price-tag">🎫 ตั๋ว</span>' : (member.viaRandom ? '<span class="price-tag">🎲 สุ่มให้</span>' : (member.viaGift ? '<span class="price-tag">🎁 ของขวัญ</span>' : '')))}</div>`).join("") || '<span class="small-text">ยังไม่มีโปเกม่อนจากการประมูล</span>'}</div></article>`;
   }).join("") || '<p class="small-text">ยังไม่มีผู้เล่นในห้อง</p>';
 }
 
@@ -3035,7 +3037,7 @@ function archiveTeamSheetHtml(player, pid, archive, editing) {
   // ทีมจากการประมูล/ดราฟต์ ไม่มีข้อมูลท่า/นิสัย/อบิลิตี้ -> การ์ดแบบเดิม (ชื่อ + ไอเทม/ราคา)
   // ส่วน Team Sheet ที่พิมพ์เอง มีข้อมูลครบ จึงโชว์การ์ดแบบละเอียดเหมือนตอนดูทีมระหว่างแข่งขัน (ท่า/ไอเทม/นิสัย/อบิลิตี้)
   const roster = isAuctionTeam
-    ? `<div class="auction-sheet-roster team-size-${archive.settings?.teamSize || 10}">${player.team.map((member, index) => `<div class="auction-sheet-member"><img src="${member.sprite || teamSheetSprite(member.displayName)}" alt="${escapeHtml(member.displayName)}"><b>${escapeHtml(member.displayName)}</b><small>#${index + 1}${member.price ? ` • 💰${Number(member.price).toLocaleString()}` : ""}</small></div>`).join("")}</div>`
+    ? `<div class="auction-sheet-roster team-size-${archive.settings?.teamSize || 10}">${player.team.map((member, index) => `<div class="auction-sheet-member"><img src="${member.sprite || teamSheetSprite(member.displayName)}" alt="${escapeHtml(member.displayName)}"><b>${escapeHtml(member.displayName)}</b>${monTypesHtml(member)}<small>#${index + 1}${member.price ? ` • 💰${Number(member.price).toLocaleString()}` : ""}</small></div>`).join("")}</div>`
     : (team.length ? sheetViewerHtml("archive-" + pid, sheetMonsOf(player), { showEvs: false }) : '<p class="archives-empty">ยังไม่ได้ส่ง Team Sheet</p>');
   return `<article class="archive-team-sheet">
     <header><div><h3>${escapeHtml(player.name || "ผู้เล่น")}${pid === archive.hostId ? ' <span class="badge">HOST</span>' : ''}</h3><p>${source} • ${team.length || 0}/${isAuctionTeam ? (archive.settings?.teamSize || 10) : 6} ตัว</p></div></header>
@@ -3560,7 +3562,7 @@ function playGachaReveal(machine, items) {
       overlay.classList.add("closing");
       setTimeout(() => { overlay.remove(); resolve(); }, 220);
     };
-    const monCard = (it, cls = "") => `<div class="gacha-card${it.isMega ? " is-mega" : ""} ${cls}"><img src="${escapeHtml(it.sprite || teamSheetSprite(it.displayName))}" alt="${escapeHtml(it.displayName)}" onerror="this.style.visibility='hidden'"><b>${escapeHtml(it.displayName)}</b>${it.isMega ? "<em>✨ MEGA!</em>" : ""}${it.status === "pending" ? "<small>กล่องเต็ม — รอคุณตัดสินใจ</small>" : ""}</div>`;
+    const monCard = (it, cls = "") => `<div class="gacha-card${it.isMega ? " is-mega" : ""} ${cls}"><img src="${escapeHtml(it.sprite || teamSheetSprite(it.displayName))}" alt="${escapeHtml(it.displayName)}" onerror="this.style.visibility='hidden'"><b>${escapeHtml(it.displayName)}</b>${monTypesHtml(it)}${it.isMega ? "<em>✨ MEGA!</em>" : ""}${it.status === "pending" ? "<small>กล่องเต็ม — รอคุณตัดสินใจ</small>" : ""}</div>`;
     const showSummary = () => {
       if (closed || summaryShown) return;
       summaryShown = true;
@@ -3636,7 +3638,7 @@ async function gachaPull(machine, count = 1) {
           else { me.pendingPull = mon; status = "pending"; }
           me.lastPull = { ...mon, status, at: Date.now() };
           gachaPushFeed(r, { kind: "pull", name: me.name || "ผู้เล่น", mon: mon.displayName, isMega: mon.isMega, machine, at: Date.now() });
-          items.push({ displayName: mon.displayName, isMega: mon.isMega, sprite: mon.sprite, machine, status });
+          items.push({ id: key, displayName: mon.displayName, isMega: mon.isMega, sprite: mon.sprite, machine, status });
           if (status === "pending") break;
         }
         if (!items.length) { outcome = { ok: false, reason: "แต้มไม่พอ" }; return; }
@@ -3816,7 +3818,7 @@ function gachaMonCard(mon, label) {
   const sprite = mon.sprite || teamSheetSprite(mon.displayName);
   const dataAttr = mon.sprite ? "" : ` data-poke-name="${escapeHtml(mon.displayName)}"`;
   const tag = label ?? (mon.machine === "mega" ? "✨ ตู้เมก้า" : mon.machine ? "🎰 ตู้ธรรมดา" : "");
-  return `<img src="${escapeHtml(sprite)}"${dataAttr} alt="${escapeHtml(mon.displayName)}" onerror="this.style.visibility='hidden'"><b>${escapeHtml(mon.displayName)}</b>${tag ? `<small>${tag}</small>` : ""}`;
+  return `<img src="${escapeHtml(sprite)}"${dataAttr} alt="${escapeHtml(mon.displayName)}" onerror="this.style.visibility='hidden'"><b>${escapeHtml(mon.displayName)}</b>${monTypesHtml(mon)}${tag ? `<small>${tag}</small>` : ""}`;
 }
 
 function gachaMachineViewHtml(room) {
@@ -4045,7 +4047,7 @@ function sheetNature(nature) {
 }
 
 // ---------- โหลดข้อมูลอ้างอิงจาก Pokémon Showdown ----------
-const DEX = { ready: false, failed: false, failedAt: 0, pokedex: {}, moves: {}, items: {}, abilities: {}, megaIndex: {}, speciesNames: [], itemNames: [], moveNames: [] };
+const DEX = { pokedexReady: false, ready: false, failed: false, failedAt: 0, pokedex: {}, moves: {}, items: {}, abilities: {}, megaIndex: {}, speciesNames: [], itemNames: [], moveNames: [] };
 let dexPromise = null;
 let dexScriptQueue = Promise.resolve();
 // ไฟล์ data/*.js ของ Showdown เป็น exports.BattleXxx = {...}; โหลดผ่าน <script> ได้โดยไม่ติด CORS (โหลดทีละไฟล์กัน exports ชนกัน)
@@ -4064,31 +4066,52 @@ function dexLoadScript(file, globalName) {
   dexScriptQueue = p.catch(() => {});
   return p;
 }
+let pokedexPromise = null;
+function dexIndexPokedex() {
+  DEX.megaIndex = {};
+  Object.values(DEX.pokedex).forEach(sp => {
+    if (!sp || !sp.name || !/^Mega/.test(sp.forme || "")) return;
+    const reqs = sp.requiredItems || (sp.requiredItem ? [sp.requiredItem] : []);
+    reqs.forEach(it => { DEX.megaIndex[`${toID(sp.baseSpecies)}|${toID(it)}`] = sp; });
+  });
+  DEX.speciesNames = Object.values(DEX.pokedex)
+    .filter(sp => sp && sp.name && sp.num > 0 && !/^(Mega|Gmax|Primal|Totem)/.test(sp.forme || ""))
+    .sort((a, b) => a.num - b.num || a.name.localeCompare(b.name)).map(sp => sp.name);
+}
+// โหลดเฉพาะ Pokédex (ธาตุ/สเตตัส/ร่างเมก้า) ใช้กับป้ายธาตุในโหมดประมูล-สุ่มตัว เบากว่าโหลดทั้งชุด
+function loadPokedexOnly() {
+  if (DEX.pokedexReady) return Promise.resolve(DEX);
+  if (DEX.failed && Date.now() - DEX.failedAt < 60000) return Promise.reject(new Error("dex unavailable"));
+  if (!pokedexPromise) {
+    pokedexPromise = (async () => {
+      const json = await fetch(SHOWDOWN_DATA_URL + "pokedex.json").then(r => (r.ok ? r.json() : null)).catch(() => null);
+      DEX.pokedex = json || await dexLoadScript("pokedex", "BattlePokedex");
+      dexIndexPokedex();
+      DEX.pokedexReady = true;
+      return DEX;
+    })().catch(error => {
+      DEX.failed = true; DEX.failedAt = Date.now(); pokedexPromise = null;
+      console.error("load pokedex failed:", error);
+      throw error;
+    });
+  }
+  return pokedexPromise;
+}
 function loadDex() {
   if (DEX.ready) return Promise.resolve(DEX);
   if (DEX.failed && Date.now() - DEX.failedAt < 60000) return Promise.reject(new Error("dex unavailable"));
   if (!dexPromise) {
     dexPromise = (async () => {
-      const files = ["pokedex", "moves", "items", "abilities"];
+      await loadPokedexOnly();
+      const files = ["moves", "items", "abilities"];
       const json = await Promise.all(files.map(f => fetch(SHOWDOWN_DATA_URL + f + ".json").then(r => (r.ok ? r.json() : null)).catch(() => null)));
       const hasDesc = d => !!d && Object.values(d).some(v => v && (v.shortDesc || v.desc));
       // ถ้า JSON ไม่มีคำอธิบายท่า/ไอเทม/อบิลิตี้ ให้ใช้ไฟล์ .js แทน
-      const pokedex = json[0] || await dexLoadScript("pokedex", "BattlePokedex");
-      const moves = hasDesc(json[1]) ? json[1] : await dexLoadScript("moves", "BattleMovedex");
-      const items = hasDesc(json[2]) ? json[2] : await dexLoadScript("items", "BattleItems");
-      const abilities = hasDesc(json[3]) ? json[3] : await dexLoadScript("abilities", "BattleAbilities");
-      DEX.pokedex = pokedex; DEX.moves = moves; DEX.items = items; DEX.abilities = abilities;
-      DEX.megaIndex = {};
-      Object.values(pokedex).forEach(sp => {
-        if (!sp || !sp.name || !/^Mega/.test(sp.forme || "")) return;
-        const reqs = sp.requiredItems || (sp.requiredItem ? [sp.requiredItem] : []);
-        reqs.forEach(it => { DEX.megaIndex[`${toID(sp.baseSpecies)}|${toID(it)}`] = sp; });
-      });
-      DEX.speciesNames = Object.values(pokedex)
-        .filter(sp => sp && sp.name && sp.num > 0 && !/^(Mega|Gmax|Primal|Totem)/.test(sp.forme || ""))
-        .sort((a, b) => a.num - b.num || a.name.localeCompare(b.name)).map(sp => sp.name);
-      DEX.itemNames = Object.values(items).filter(i => i && i.name).map(i => i.name).sort();
-      DEX.moveNames = Object.values(moves).filter(m => m && m.name && !m.isZ && !m.isMax).map(m => m.name).sort();
+      DEX.moves = hasDesc(json[0]) ? json[0] : await dexLoadScript("moves", "BattleMovedex");
+      DEX.items = hasDesc(json[1]) ? json[1] : await dexLoadScript("items", "BattleItems");
+      DEX.abilities = hasDesc(json[2]) ? json[2] : await dexLoadScript("abilities", "BattleAbilities");
+      DEX.itemNames = Object.values(DEX.items).filter(i => i && i.name).map(i => i.name).sort();
+      DEX.moveNames = Object.values(DEX.moves).filter(m => m && m.name && !m.isZ && !m.isMax).map(m => m.name).sort();
       DEX.ready = true;
       return DEX;
     })().catch(error => {
@@ -4099,7 +4122,7 @@ function loadDex() {
   }
   return dexPromise;
 }
-function dexSpecies(name) { return DEX.ready ? (DEX.pokedex[toID(name)] || null) : null; }
+function dexSpecies(name) { return DEX.pokedexReady ? (DEX.pokedex[toID(name)] || null) : null; }
 function dexMove(name) { return DEX.ready ? (DEX.moves[toID(name)] || null) : null; }
 function dexItem(name) { return DEX.ready ? (DEX.items[toID(name)] || null) : null; }
 function dexAbility(name) { return DEX.ready ? (DEX.abilities[toID(name)] || null) : null; }
@@ -4166,6 +4189,43 @@ function sheetMonsOf(player) {
 // ---------- การ์ดชีท ----------
 const sheetRegistry = new Map();
 const sheetSpriteResolved = new Map();
+// ---------- ป้ายธาตุของโปเกม่อน (ใช้ในโหมดประมูล/สุ่มตัว/ทีมจากประมูล) ----------
+// entry = { apiName?, id?, displayName } ; หาใน Pokédex ของ Showdown จากชื่อ PokeAPI ก่อน แล้วตัดท้ายฟอร์มที่ไม่ตรงกัน
+function typeLookupIds(entry) {
+  const ids = [];
+  const add = v => { const id = toID(v); if (id && !ids.includes(id)) ids.push(id); };
+  add(entry.apiName); add(entry.id); add(entry.displayName);
+  const strip = /^(.*)-(incarnate|male|female|midday|shield|average|amped|ordinary|solo|standard|disguised|plant|normal|altered|aria|full-belly|single-strike|zero|curly|baile|blade|land|50|two-segment|family-of-four|green-plumage)$/;
+  [entry.apiName, entry.id].forEach(v => { const m = String(v || "").match(strip); if (m) add(m[1]); });
+  return ids;
+}
+function monTypes(entry) {
+  if (!DEX.pokedexReady || !entry) return null;
+  for (const id of typeLookupIds(entry)) { const sp = DEX.pokedex[id]; if (sp && sp.types) return sp.types; }
+  return null;
+}
+function monTypesInner(entry) { const t = monTypes(entry); return t ? t.map(sheetTypeBadge).join("") : ""; }
+// ใส่ใน template ได้เลย ถ้ายังโหลดข้อมูลไม่เสร็จจะเป็นกล่องว่างแล้วเติมให้เองทีหลัง
+function monTypesHtml(entry) {
+  if (!entry) return "";
+  return `<span class="mon-types" data-ta="${escapeHtml(entry.apiName || "")}" data-ti="${escapeHtml(entry.id || "")}" data-td="${escapeHtml(entry.displayName || "")}">${monTypesInner(entry)}</span>`;
+}
+function fillMonTypes(root) {
+  const list = root.matches?.(".mon-types") ? [root] : [...(root.querySelectorAll?.(".mon-types") || [])];
+  list.forEach(el => {
+    if (el.childElementCount) return;
+    const html = monTypesInner({ apiName: el.dataset.ta, id: el.dataset.ti, displayName: el.dataset.td });
+    if (html) el.innerHTML = html;
+  });
+}
+let monTypesLoading = false;
+function scheduleMonTypes(node) {
+  if (DEX.pokedexReady) { fillMonTypes(node); return; }
+  if (monTypesLoading) return;
+  monTypesLoading = true;
+  loadPokedexOnly().then(() => fillMonTypes(document.body)).catch(() => {}).finally(() => { monTypesLoading = false; });
+}
+
 function sheetForms(mon) {
   const sp = dexSpecies(mon.species);
   if (!sp) return { base: null, mega: null, species: null };
@@ -4323,6 +4383,7 @@ if (typeof MutationObserver !== "undefined") {
       if (node.nodeType !== 1) continue;
       const viewers = node.matches?.(".sheet-viewer") ? [node] : [...(node.querySelectorAll?.(".sheet-viewer") || [])];
       viewers.forEach(hydrateSheetViewer);
+      if (node.matches?.(".mon-types") || node.querySelector?.(".mon-types")) scheduleMonTypes(node);
     }
   }).observe(document.body, { childList: true, subtree: true });
 }
@@ -4491,7 +4552,7 @@ async function tbSave() {
   if (!d.name.trim()) { alert("กรุณาตั้งชื่อทีม"); return; }
   if (!d.mons.some(m => m.species.trim())) { alert("ใส่โปเกม่อนอย่างน้อย 1 ตัวก่อนบันทึก"); return; }
   if (!builder.editingId && Object.keys(builder.teams).length >= TB_LIMIT) { alert(`เก็บทีมได้สูงสุด ${TB_LIMIT} ทีม ลบทีมเก่าก่อน`); return; }
-  const id = builder.editingId || `t${Date.now().toString(36)}`;
+  const id = builder.editingId || `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   const now = Date.now();
   const record = { ...tbRecordFromDraft(), updatedAt: now, createdAt: builder.teams[id]?.createdAt || now };
   try {
