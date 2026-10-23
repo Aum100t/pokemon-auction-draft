@@ -253,7 +253,7 @@ button:disabled { cursor:not-allowed; opacity:.48; }
 .header-btn:hover { filter:brightness(1.1); }
 @media (max-width:520px) { .site-header { flex-direction:column; gap:8px; } .header-btn { position:static; transform:none; } }
 body.tb-open { overflow:hidden; }
-.tb-overlay { position:fixed; inset:0; z-index:5000; overflow-y:auto; padding:18px 10px 60px; background:radial-gradient(circle at 50% 0%, rgba(30,50,110,.97), rgba(6,10,26,.98)); }
+.tb-overlay { position:fixed; inset:0; z-index:5000; overflow-y:auto; padding:18px 10px 60px; background:radial-gradient(circle at 50% 0%, #1b2f66, #060a1a 75%); }
 .tb-panel { max-width:1180px; margin:0 auto; padding:18px; border-radius:16px; background:rgba(255,255,255,.05); border:1px solid rgba(166,204,255,.18); }
 .tb-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; }
 .tb-head h2 { margin:0; }
@@ -359,3 +359,108 @@ body.tb-open { overflow:hidden; }
 .auc-types { display:flex; justify-content:center; margin:4px 0; }
 .auc-types .mon-types .type-badge { padding:2px 10px; font-size:.75rem; }
 .poke-card .mon-types { margin-top:5px; }
+
+/* ---------- Team Builder: ปุ่มเลือก / หน้าเลือกเต็มจอ / อบิลิตี้ ---------- */
+.tb-panel input, .tb-panel select, .tb-picker input { font-size:16px; }
+.tb-slot-top { display:flex; gap:12px; align-items:flex-start; margin-bottom:6px; }
+.tb-hero-col { flex:0 0 112px; display:flex; flex-direction:column; align-items:center; gap:6px; }
+.tb-hero { width:104px; height:104px; object-fit:contain; }
+.tb-hero.empty { display:flex; align-items:center; justify-content:center; border:2px dashed rgba(166,204,255,.3); border-radius:14px; font-size:2rem; color:rgba(255,255,255,.3); }
+.tb-hero-types { display:flex; gap:4px; flex-wrap:wrap; justify-content:center; }
+.tb-slot-fields { flex:1; min-width:0; }
+.tb-pick { display:flex; align-items:center; gap:10px; width:100%; min-height:46px; padding:10px 12px; border:1px solid rgba(166,204,255,.25); border-radius:12px; background:rgba(8,16,40,.7); color:rgba(255,255,255,.55); font:inherit; font-size:1rem; text-align:left; cursor:pointer; }
+.tb-pick.filled { color:#fff; font-weight:700; }
+.tb-pick > span:not(.tb-pick-icon) { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tb-pick em { font-style:normal; opacity:.6; }
+.tb-pick-icon { display:inline-flex; width:24px; }
+.tb-pick-move i { width:5px; height:22px; border-radius:3px; flex:0 0 5px; }
+.tb-pick:hover { border-color:var(--gold); }
+.tb-ability-list { display:flex; gap:8px; flex-wrap:wrap; }
+.tb-ability { display:flex; flex-direction:column; gap:1px; padding:8px 14px; border:1px solid rgba(166,204,255,.25); border-radius:12px; background:rgba(8,16,40,.7); color:#fff; font:inherit; text-align:left; cursor:pointer; }
+.tb-ability small { font-size:.66rem; opacity:.65; }
+.tb-ability.on { border-color:#4f8cff; background:#1b2c52; box-shadow:0 0 0 2px rgba(79,140,255,.35); }
+.tb-ability-desc { margin:6px 0 0; }
+.tb-ev small { color:var(--gold); font-size:.62rem; }
+.tb-picker { position:fixed; inset:0; z-index:6000; display:flex; flex-direction:column; background:#0b1430; }
+.tb-picker.hidden { display:none; }
+.tb-picker-panel { display:flex; flex-direction:column; height:100%; max-width:760px; width:100%; margin:0 auto; }
+.tb-picker-head { display:flex; align-items:center; gap:10px; padding:12px; }
+.tb-picker-head h3 { flex:1; margin:0; text-align:center; font-size:1.15rem; }
+.tb-count { padding:2px 10px; border-radius:999px; background:rgba(79,140,255,.25); color:#8fb4ff; font-weight:800; font-size:.8rem; }
+.tb-picker-search { padding:0 12px 10px; border-bottom:1px solid rgba(166,204,255,.18); }
+.tb-picker-search input { width:100%; box-sizing:border-box; padding:13px 14px; border-radius:14px; border:2px solid #3d7bff; background:#070d20; color:#fff; }
+.tb-picker-list { flex:1; overflow-y:auto; padding:6px 12px 90px; -webkit-overflow-scrolling:touch; }
+.tb-picker-note { padding:14px 4px; }
+.tb-row { display:flex; align-items:center; gap:12px; width:100%; margin:8px 0; padding:11px 12px; border:1px solid #28365d; border-radius:14px; background:#16213f; color:#fff; font:inherit; text-align:left; cursor:pointer; }
+.tb-row.selected { border-color:#4f8cff; background:#1b2c52; }
+.tb-row.custom { border-style:dashed; }
+.tb-row:hover { border-color:#6a9bff; }
+.tb-row-img { width:44px; height:44px; object-fit:contain; flex:0 0 44px; }
+.tb-row-icon { flex:0 0 28px; display:inline-flex; justify-content:center; }
+.tb-row-main { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+.tb-row-main b { font-size:1.02rem; }
+.tb-row-sub { font-size:.78rem; color:rgba(255,255,255,.62); letter-spacing:.03em; }
+.tb-row-types { display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end; }
+.tb-tag { align-self:flex-start; padding:1px 8px; border-radius:999px; background:var(--gold); color:#172740; font-size:.64rem; font-style:normal; font-weight:800; }
+
+/* ---------- ตารางแพ้ทาง / ต้านทาน ---------- */
+.sheet-mu { margin-top:14px; }
+.sheet-mu-toggle { padding:9px 14px; border:1px solid var(--line-s); border-radius:10px; background:#fff; color:var(--ink-s); font:inherit; font-weight:700; cursor:pointer; }
+.sheet-mu-scroll { overflow-x:auto; margin-top:10px; border-radius:12px; background:#fff; border:1px solid var(--line-s); }
+.sheet-mu-table { width:100%; border-collapse:collapse; min-width:420px; }
+.sheet-mu-table th, .sheet-mu-table td { padding:5px 6px; text-align:center; border-bottom:1px solid #f0ecf8; }
+.sheet-mu-table thead th { font-size:.68rem; letter-spacing:.06em; color:var(--muted-s); background:#f7f4fd; }
+.sheet-mu-table tbody th { text-align:left; padding-left:8px; }
+.sheet-mu-table .type-badge { display:inline-block; min-width:78px; text-align:center; text-transform:uppercase; letter-spacing:.04em; padding:4px 8px; }
+.sheet-mu-icon { width:34px; height:34px; object-fit:contain; }
+.mu-cell { display:inline-block; min-width:38px; padding:3px 6px; border-radius:7px; font-size:.8rem; font-weight:800; }
+.mu-cell.w2 { background:#fbdcdc; color:#b3261e; }
+.mu-cell.w4 { background:#e8554e; color:#fff; }
+.mu-cell.r { background:#d6f1de; color:#1b7a43; }
+.mu-cell.r4 { background:#a4dfba; color:#14532d; }
+.mu-cell.im { background:#dcdce6; color:#555; }
+.sheet-mu-table .mu-weak { color:#d93b3b; font-weight:800; }
+.sheet-mu-table .mu-res { color:#1f9d55; font-weight:800; }
+@media (max-width:520px) { .tb-slot-top { flex-direction:column; align-items:stretch; } .tb-hero-col { flex-direction:row; justify-content:flex-start; flex-basis:auto; } .tb-hero { width:84px; height:84px; } }
+
+/* ---------- ค่าพลัง Lv.50 + แถบ SP ---------- */
+.tb-stats { margin-top:14px; padding:12px; border-radius:14px; background:rgba(8,16,40,.55); border:1px solid rgba(166,204,255,.18); }
+.tb-stats-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
+.tb-stats-head b { font-size:1.05rem; }
+.tb-legend { font-size:.72rem; letter-spacing:.08em; color:rgba(255,255,255,.55); }
+.tb-mega-btn { margin-left:auto; padding:8px 14px; border:none; border-radius:10px; background:#d9d0f3; color:#3d2d8a; font:inherit; font-weight:800; cursor:pointer; }
+.tb-mega-btn.on { background:#8f7ae0; color:#fff; }
+.tb-stat-rows { margin-top:10px; display:flex; flex-direction:column; gap:12px; }
+.tb-stat-row { padding:8px 0; border-top:1px dashed rgba(166,204,255,.18); }
+.tb-stat-row:first-child { border-top:none; }
+.tb-stat-line { display:flex; align-items:baseline; gap:8px; }
+.tb-stat-label { width:44px; font-size:.95rem; letter-spacing:.04em; }
+.tb-stat-base { color:rgba(255,255,255,.7); font-size:1rem; }
+.tb-stat-sep { color:rgba(255,255,255,.35); }
+.tb-stat-final { margin-left:auto; font-size:1.5rem; font-weight:900; letter-spacing:.02em; }
+.tb-stat-final.up { color:#ff5a5a; }
+.tb-stat-final.down { color:#4da3ff; }
+.tb-delta { margin-left:5px; font-style:normal; font-size:.72rem; font-weight:800; color:rgba(255,255,255,.5); }
+.tb-delta.plus { color:#38d68b; }
+.tb-delta.minus { color:#ff6b6b; }
+.tb-bar { position:relative; height:9px; margin-top:5px; border-radius:3px; background:rgba(255,255,255,.08); overflow:hidden; }
+.tb-bar-base i { display:block; height:100%; background:var(--c); opacity:.55; }
+.tb-meter { height:14px; display:flex; }
+.tb-meter i { display:block; height:100%; }
+.tb-meter-base { background:var(--c); opacity:.85; }
+.tb-meter-sp { background:repeating-linear-gradient(135deg, #fff 0 3px, var(--c) 3px 6px); box-shadow:0 0 8px var(--c); }
+.tb-sp { display:flex; align-items:center; gap:8px; margin-top:8px; }
+.tb-slider { flex:1; min-width:0; accent-color:var(--c); height:28px; }
+.tb-step { flex:0 0 40px; height:40px; border:1px solid rgba(166,204,255,.3); border-radius:10px; background:rgba(8,16,40,.8); color:#fff; font-size:1.3rem; line-height:1; cursor:pointer; }
+.tb-step:active { background:#1b2c52; }
+.tb-sp-num { flex:0 0 54px; width:54px; box-sizing:border-box; text-align:center; padding:8px 2px; }
+.tb-stat-total { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-top:12px; padding-top:10px; border-top:1px dashed rgba(166,204,255,.25); font-size:.9rem; }
+.tb-stat-total b { color:var(--gold); }
+
+/* ---------- ป้ายสาย Double Elimination ---------- */
+.bracket-tag { display:inline-block; margin:0 6px 6px 0; padding:2px 10px; border-radius:999px; font-size:.7rem; font-weight:800; letter-spacing:.02em; color:#fff; }
+.bracket-tag.upper { background:#3d7bff; }
+.bracket-tag.lower { background:#e08a2c; }
+.bracket-tag.final { background:#d4a017; color:#172740; }
+.bracket-tag.reset { background:#8f4fd6; }
+.bracket-tag.rematch { background:#6b7390; }

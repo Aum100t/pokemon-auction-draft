@@ -471,13 +471,130 @@ function makePairs(ids, standings = []) {
   const ranked = standings.length ? standings.filter(s => ids.includes(s.pid)).map(s => s.pid) : [...ids].sort(() => Math.random() - .5);
   const pairs = []; for (let i=0;i<ranked.length;i+=2) pairs.push({ player1Id:ranked[i], player2Id:ranked[i+1] || null, isBye:!ranked[i+1], winnerId: ranked[i+1] ? null : ranked[i] }); return pairs;
 }
+// ---------- จับคู่รอบ (Swiss / Single / Double Elimination) ----------
+// หลักการ: ไม่จับคู่คนเดิมซ้ำถ้ามีทางเลี่ยง • Double Elimination แยกสายบน (แพ้ 0) / สายล่าง (แพ้ 1)
+// ให้เจอกันข้ามสายเฉพาะรอบชิง (รอบชิงตาเดียว ผู้ชนะคือแชมป์ ไม่มีรอบรีเซ็ต) • บายแจกให้คนที่ยังไม่เคยได้ก่อน
+// (Swiss = อันดับต่ำสุดได้บาย / Elimination = อันดับสูงสุดได้บาย) • จำนวนแพ้นับจากประวัติจริง ไม่เก็บตัวนับแยก
+function pairKey(a, b) { return a < b ? `${a}|${b}` : `${b}|${a}`; }
+function pairingInfo(rounds) {
+  const played = new Set(), byes = {}, losses = {};
+  (rounds || []).forEach(round => (round.matches || []).forEach(m => {
+    if (!m) return;
+    if (m.isBye) { if (m.winnerId && !m.rest) byes[m.winnerId] = (byes[m.winnerId] || 0) + 1; return; }
+    if (m.player1Id && m.player2Id) played.add(pairKey(m.player1Id, m.player2Id));
+    if (m.winnerId) { const loser = m.winnerId === m.player1Id ? m.player2Id : m.player1Id; if (loser) losses[loser] = (losses[loser] || 0) + 1; }
+  }));
+  return { played, byes, losses };
+}
+function rankPlayers(ids, stats, rnd = Math.random) {
+  const byPid = new Map((stats || []).map(s => [s.pid, s]));
+  return ids.map(pid => ({ pid, s: byPid.get(pid), r: rnd() }))
+    .sort((a, b) => (b.s?.points || 0) - (a.s?.points || 0) || (b.s?.wins || 0) - (a.s?.wins || 0) || a.r - b.r)
+    .map(x => x.pid);
+}
+// จับคู่ทุกคนในลิสต์ (จำนวนคู่) โดยเลี่ยงคู่ที่เคยเจอกันแล้ว ลองจากอันดับใกล้กันก่อน ถ้าเลี่ยงไม่ได้จริงๆ จะยอมซ้ำให้น้อยที่สุด
+function pairAvoidingRematch(list, played) {
+  const n = list.length, used = new Array(n).fill(false), cur = [];
+  let best = null, steps = 0, done = false;
+  const dfs = (rematches) => {
+    if (done || steps++ > 30000) return;
+    if (best && rematches >= best.rematches) return;
+    const i = used.indexOf(false);
+    if (i === -1) { best = { pairs: cur.map(p => p.slice()), rematches }; if (rematches === 0) done = true; return; }
+    used[i] = true;
+    for (let j = i + 1; j < n && !done; j++) {
+      if (used[j]) continue;
+      used[j] = true; cur.push([list[i], list[j]]);
+      dfs(rematches + (played.has(pairKey(list[i], list[j])) ? 1 : 0));
+      cur.pop(); used[j] = false;
+    }
+    used[i] = false;
+  };
+  dfs(0);
+  if (best) return best.pairs;
+  const fallback = [];
+  for (let i = 0; i + 1 < n; i += 2) fallback.push([list[i], list[i + 1]]);
+  return fallback;
+}
+// จำนวนคี่: ลองให้แต่ละคนเป็นผู้ได้บาย (เรียงตามความเหมาะสม: ยังไม่เคยได้บายก่อน แล้วตามอันดับ) เลือกแบบที่ไม่ต้องเจอคู่เดิม
+// ถ้าเลี่ยงไม่ได้เลยจึงเลือกแบบที่เจอซ้ำน้อยที่สุด
+function pairGroup(ranked, info, byePolicy) {
+  if (ranked.length % 2 === 0) return { pairs: pairAvoidingRematch(ranked, info.played), bye: null };
+  const idx = p => ranked.indexOf(p);
+  const order = [...ranked].sort((a, b) => ((info.byes[a] || 0) - (info.byes[b] || 0)) || (byePolicy === "lowest" ? idx(b) - idx(a) : idx(a) - idx(b)));
+  let best = null;
+  for (const bye of order) {
+    const pairs = pairAvoidingRematch(ranked.filter(p => p !== bye), info.played);
+    const rematches = pairs.filter(p => info.played.has(pairKey(p[0], p[1]))).length;
+    if (!best || rematches < best.rematches) best = { pairs, bye, rematches };
+    if (rematches === 0) break;
+  }
+  return { pairs: best.pairs, bye: best.bye };
+}
+function makeRoundMatches(format, ids, stats = [], rounds = [], rnd = Math.random) {
+  const info = pairingInfo(rounds);
+  const ranked = rankPlayers(ids, stats, rnd);
+  const duel = (a, b, tag) => ({ player1Id: a, player2Id: b, isBye: false, winnerId: null, ...(tag ? { bracket: tag } : {}), ...(info.played.has(pairKey(a, b)) && tag !== "final" && tag !== "reset" ? { rematch: true } : {}) });
+  const rest = (a, tag) => ({ player1Id: a, player2Id: null, isBye: true, winnerId: a, ...(tag ? { bracket: tag } : {}) });
+  if (format !== "double") {
+    const r = pairGroup(ranked, info, format === "swiss" ? "lowest" : "highest");
+    return [...r.pairs.map(p => duel(p[0], p[1])), ...(r.bye ? [rest(r.bye)] : [])];
+  }
+  const lossOf = pid => info.losses[pid] || 0;
+  if (ranked.length === 2) {
+    // เหลือ 2 คน = รอบชิงตาเดียว (สายบน vs สายล่าง) ผู้ชนะคือแชมป์ทันที ไม่มีรอบรีเซ็ต
+    const [a, b] = ranked;
+    return [duel(a, b, "final")];
+  }
+  const matches = [], byes = [];
+  [["upper", ranked.filter(p => lossOf(p) === 0)], ["lower", ranked.filter(p => lossOf(p) >= 1)]].forEach(([tag, group]) => {
+    if (!group.length) return;
+    const r = pairGroup(group, info, "highest");
+    r.pairs.forEach(p => matches.push(duel(p[0], p[1], tag)));
+    if (r.bye) byes.push(rest(r.bye, tag));
+  });
+  return [...matches, ...byes];
+}
+// ตาราง Round Robin ถูกสร้างไว้ล่วงหน้า: นัดที่มีคนถอนตัว/ถูกเตะแล้วจะ "ไม่จับคู่" -> ฝ่ายตรงข้ามได้พักรอบ (ไม่นับแต้ม/แพ้ชนะ)
+// ส่วนนัดที่เล่นจบไปแล้วยังอยู่ในบอร์ดตามเดิม
+function adaptScheduledMatches(room, scheduled) {
+  const out = [];
+  (scheduled || []).forEach(src => {
+    const m = JSON.parse(JSON.stringify(src));
+    const out1 = !!room.players?.[m.player1Id]?.withdrawn;
+    const out2 = !!(m.player2Id && room.players?.[m.player2Id]?.withdrawn);
+    if (m.isBye) { if (!out1) out.push(m); return; }
+    if (out1 && out2) return;
+    if (out1 || out2) {
+      const stay = out1 ? m.player2Id : m.player1Id;
+      out.push({ player1Id: stay, player2Id: null, isBye: true, winnerId: stay, rest: true, score: "พักรอบ (คู่แข่งถอนตัว)" });
+      return;
+    }
+    out.push(m);
+  });
+  return out;
+}
+// ถอนตัว/ถูกเตะกลางรอบ: แมตช์ที่ยังไม่จบของคนนั้นให้อีกฝ่ายชนะ (ล้างผลที่รอยืนยันค้างอยู่ด้วย)
+function forfeitLatestMatch(t, pid, text) {
+  const current = t?.history?.[t.history.length - 1];
+  const match = current?.matches?.find(m => !m.isBye && !m.winnerId && (m.player1Id === pid || m.player2Id === pid));
+  if (!match) return false;
+  match.winnerId = match.player1Id === pid ? match.player2Id : match.player1Id;
+  match.score = text; match.reportedAt = Date.now(); match.pendingWinnerId = null; match.pendingScore = null;
+  return true;
+}
+function bracketTagHtml(m) {
+  const label = ({ upper: "สายบน", lower: "สายล่าง", final: "รอบชิง", reset: "รอบชิง (รีเซ็ต)" })[m?.bracket];
+  const again = m?.rematch ? '<span class="bracket-tag rematch" title="ไม่มีคู่แข่งอื่นที่ยังไม่เคยเจอเหลือแล้ว">เจอคู่เดิมซ้ำ</span>' : "";
+  return (label ? `<span class="bracket-tag ${m.bracket}">${label}</span>` : "") + again;
+}
 function initialTournament(room) {
   const ids = activePlayerIds(room);
   const firstPhase = room.settings?.phases?.[0] || "swiss";
   const weeklySchedule = firstPhase === "roundRobin" ? generateRoundRobinSchedule(ids) : [];
   const firstMatches = firstPhase === "roundRobin"
     ? (weeklySchedule[0]?.matches || [])
-    : makePairs(ids);
+    : makeRoundMatches(firstPhase, ids, [], []);
   // Create round one as part of starting the event, rather than waiting for a
   // second host action. This makes every format immediately playable.
   return { phaseIndex:0, round:0, started:true, checkins:{}, pendingWithdrawals:{}, history:[{phaseIndex:0,round:1,format:firstPhase,matches:firstMatches}], phaseParticipants:ids, weeklySchedule, championId:null };
@@ -546,29 +663,20 @@ async function beginNextRound() {
       }
       if (isGachaRoom(room) && activePlayerIds(room).some(pid => room.players[pid].pendingPull)) { blockedReason = "มีผู้เล่นที่สุ่มได้แล้วแต่ยังไม่เลือกทิ้ง/แทนที่ตัวใหม่ กรุณารอให้ทุกคนตัดสินใจก่อน"; return room; }
       if(format === "single") ids=previous.matches.filter(m=>m.winnerId).map(m=>m.winnerId).filter(pid=>room.players[pid] && !room.players[pid].withdrawn);
-      if(format === "double") { t.losses=t.losses||{}; previous.matches.forEach(m=>{if(!m.isBye&&m.winnerId){const loser=m.winnerId===m.player1Id?m.player2Id:m.player1Id;t.losses[loser]=(t.losses[loser]||0)+1;}}); ids=ids.filter(pid=>(t.losses[pid]||0)<2 && room.players[pid] && !room.players[pid].withdrawn); }
+      if(format === "double") { const lossInfo = pairingInfo(t.history); ids=ids.filter(pid=>(lossInfo.losses[pid]||0)<2 && room.players[pid] && !room.players[pid].withdrawn); }
       const rrRounds=format === "roundRobin" ? (t.weeklySchedule?.length || generateRoundRobinSchedule(ids).length) : 0;
-      const phaseEnded=(format === "single" || format === "double") && ids.length<=1 || (format === "swiss" && t.round+1 >= (room.settings.swissRounds||3)) || (format === "roundRobin" && t.round+1 >= rrRounds);
+      const decidedFinal = format === "double" ? previous.matches.find(m => m.bracket === "final" && m.winnerId) : null;
+      const phaseEnded=!!decidedFinal || (format === "single" || format === "double") && ids.length<=1 || (format === "swiss" && t.round+1 >= (room.settings.swissRounds||3)) || (format === "roundRobin" && t.round+1 >= rrRounds);
       if(phaseEnded) {
         if(t.phaseIndex+1 < room.settings.phases.length) { t.phaseComplete=true; return room; }
-        const winner=(format === "single" || format === "double") ? ids[0] : tournamentStats(room).filter(s=>!room.players[s.pid].withdrawn)[0]?.pid;
+        const winner=decidedFinal ? decidedFinal.winnerId : (format === "single" || format === "double") ? ids[0] : tournamentStats(room).filter(s=>!room.players[s.pid].withdrawn)[0]?.pid;
         completeTournamentInTransaction(room,winner); return room;
       }
       nextRoundIndex = t.round + 1;
     }
     if(shouldCheckIn(room, nextRoundIndex)) { const checked=Object.keys(t.checkins||{}).filter(pid=>t.checkins[pid]); if(!checked.length) {t.checkinRequired=true; return room;} ids=ids.filter(pid=>checked.includes(pid)); t.checkins={}; t.checkinRequired=false; }
     t.round = nextRoundIndex;
-    const matches = format === "roundRobin" ? (t.weeklySchedule?.[t.round]?.matches || []) : makePairs(ids,stats);
-    // ตารางแบบ Round Robin ถูกสร้างไว้ล่วงหน้าตั้งแต่ต้นทัวร์นาเมนต์ ถ้ามีใครถอนตัว/ถูกเตะออกไปแล้ว
-    // ระหว่างทาง คู่ของรอบถัดไปที่มีเขาอยู่ต้องถูกปรับให้อีกฝ่ายชนะอัตโนมัติ ไม่ใช่ปล่อยให้ยังจับคู่แข่งกันอยู่
-    matches.forEach(m => {
-      if (m.winnerId) return;
-      const p1Out = !!room.players[m.player1Id]?.withdrawn;
-      const p2Out = !!(m.player2Id && room.players[m.player2Id]?.withdrawn);
-      if (p1Out && p2Out) { m.winnerId = null; m.isBye = true; m.score = "ถอนตัวทั้งคู่"; }
-      else if (p1Out) { m.winnerId = m.player2Id; m.score = "ถอนตัว"; m.reportedAt = Date.now(); }
-      else if (p2Out) { m.winnerId = m.player1Id; m.score = "ถอนตัว"; m.reportedAt = Date.now(); }
-    });
+    const matches = format === "roundRobin" ? adaptScheduledMatches(room, t.weeklySchedule?.[t.round]?.matches) : makeRoundMatches(format, ids, stats, t.history);
     t.history.push({phaseIndex:t.phaseIndex,round:t.round+1,format,matches}); t.started=true; return room;
   });
   if (blockedReason) alert(`${blockedReason} — กรุณาระบุผู้ชนะให้ครบก่อนเริ่มรอบต่อไป`);
@@ -594,7 +702,7 @@ async function advanceTournamentPhase() {
     const ids=t.phaseParticipants;
     const weeklySchedule = newFormat === "roundRobin" ? generateRoundRobinSchedule(ids) : [];
     t.weeklySchedule = weeklySchedule;
-    t.history=[{phaseIndex:t.phaseIndex, round:1, format:newFormat, matches: newFormat === "roundRobin" ? (weeklySchedule[0]?.matches||[]) : makePairs(ids, [])}];
+    t.history=[{phaseIndex:t.phaseIndex, round:1, format:newFormat, matches: newFormat === "roundRobin" ? adaptScheduledMatches(room, weeklySchedule[0]?.matches) : makeRoundMatches(newFormat, ids, [], [])}];
     t.started=true;
     return room;
   });
@@ -605,12 +713,10 @@ async function tournamentAction(action, payload={}) {
       const t=room.tournament, spectator=room.players?.[currentPlayerId]?.isSpectator;
       if(!t || !room.players?.[currentPlayerId]) return room;
       if(action==='checkin'&&!spectator) t.checkins[currentPlayerId]=true;
-      if(action==='withdraw'&&!spectator) {
+      if(action==='withdraw'&&!spectator&&room.status==="tournament"&&!room.players[currentPlayerId].withdrawn) {
         room.players[currentPlayerId].withdrawn=true;
         delete t.pendingWithdrawals?.[currentPlayerId];
-        const current=t.history?.[t.history.length-1];
-        const match=current?.matches?.find(m=>!m.isBye&&!m.winnerId&&(m.player1Id===currentPlayerId||m.player2Id===currentPlayerId));
-        if(match) { match.winnerId=match.player1Id===currentPlayerId?match.player2Id:match.player1Id; match.score="ถอนตัว"; match.reportedAt=Date.now(); }
+        forfeitLatestMatch(t, currentPlayerId, "ถอนตัว");
       }
       if(action==='result') { const m=t.history[payload.round]?.matches[payload.match]; const validScore=room.settings.bestOf==="BO3" ? /^(2-[01]|[01]-2)$/.test(payload.score||"") : payload.score==="1-0" || payload.score==="0-1"; const winnerMatchesScore=payload.winner===m?.player1Id ? String(payload.score).startsWith("2")||payload.score==="1-0" : String(payload.score).endsWith("2")||payload.score==="0-1"; if(m&&!m.isBye&&validScore&&winnerMatchesScore&&(currentPlayerId===room.hostId||currentPlayerId===m.player1Id||currentPlayerId===m.player2Id)) { m.pendingWinnerId=payload.winner; m.pendingScore=payload.score; m.reportedAt=Date.now(); m.reportedBy=currentPlayerId; } }
       // ผู้จัดห้อง (host) หรือแอดมิน แก้ไขผลที่ยืนยันไปแล้วได้ เฉพาะรอบปัจจุบัน ก่อนเริ่มรอบต่อไป
@@ -670,9 +776,7 @@ async function kickPlayerFromTournament(targetPlayerId) {
       if (!target || target.withdrawn) return room;
       target.withdrawn = true;
       target.kicked = true;
-      const current = t.history?.[t.history.length - 1];
-      const match = current?.matches?.find(m => !m.isBye && !m.winnerId && (m.player1Id === targetPlayerId || m.player2Id === targetPlayerId));
-      if (match) { match.winnerId = match.player1Id === targetPlayerId ? match.player2Id : match.player1Id; match.score = "ถูกเตะออก"; match.reportedAt = Date.now(); }
+      forfeitLatestMatch(t, targetPlayerId, "ถูกเตะออก");
       return room;
     });
   } catch (error) {
@@ -724,7 +828,7 @@ function teamPreviewHtml(player, key) {
     return `<button class="team-toggle" data-team-toggle="${key}">👁️ ดูทีมของ ${escapeHtml(player?.name || "ผู้เล่น")}</button><div id="team-preview-${key}" class="team-preview live-team-preview hidden"><b class="team-preview-owner">${source} ของ ${escapeHtml(player?.name || "ผู้เล่น")}</b><div class="auction-sheet-roster">${roster}</div></div>`;
   }
   // Team Sheet ที่พิมพ์เอง -> การ์ดชีทแบบ VGCode (ท่า/ไอเทม/นิสัย + กดดูรายละเอียดได้ ไม่โชว์ตัวเลข EV แสดงเฉพาะสีของนิสัย)
-  return `<button class="team-toggle" data-team-toggle="${key}">👁️ ดูทีมของ ${escapeHtml(player?.name || "ผู้เล่น")}</button><div id="team-preview-${key}" class="team-preview live-team-preview hidden"><b class="team-preview-owner">${source} ของ ${escapeHtml(player?.name || "ผู้เล่น")}</b>${sheetViewerHtml("sheet-" + key, sheetMonsOf(player), { showEvs: false })}</div>`;
+  return `<button class="team-toggle" data-team-toggle="${key}">👁️ ดูทีมของ ${escapeHtml(player?.name || "ผู้เล่น")}</button><div id="team-preview-${key}" class="team-preview live-team-preview hidden"><b class="team-preview-owner">${source} ของ ${escapeHtml(player?.name || "ผู้เล่น")}</b>${sheetViewerHtml("sheet-" + key, sheetMonsOf(player), { showEvs: false, matchups: "closed" })}</div>`;
 }
 function bindTeamToggles(root) { root.querySelectorAll("button[data-team-toggle]").forEach(btn=>btn.addEventListener("click",()=>{const pv=document.getElementById("team-preview-"+btn.dataset.teamToggle); pv?.classList.toggle("hidden"); if(pv && !pv.classList.contains("hidden")) pv.querySelectorAll(".sheet-viewer").forEach(hydrateSheetViewer);})); hydratePokeApiSprites(root); }
 function renderMetaAnalytics(room) {
@@ -862,7 +966,7 @@ function renderTournamentInner(room) {
   const pairs=document.getElementById("tournament-pairings");
   if(t.championId) pairs.innerHTML=`<div class="match-card"><h3>👑 แชมป์: ${escapeHtml(room.players[t.championId]?.name||"-")}</h3></div>`;
   else if(!current) { pairs.innerHTML=`<p class="small-text">กำลังสร้างคู่แข่งขันรอบแรก...</p>`; ensureFirstTournamentRound(); }
-  else pairs.innerHTML=`<h3>รอบ ${current.round} — ${tournamentLabel(current.format)}</h3>`+current.matches.map((m,i)=>{const a=room.players[m.player1Id]?.name||"-",b=m.player2Id?room.players[m.player2Id]?.name:"BYE",canReport=isHost||currentPlayerId===m.player1Id||currentPlayerId===m.player2Id,canEditResult=(isHost||canManageRoom(room))&&!m.isBye&&!!m.winnerId,chatId=`match-chat-${t.history.length-1}-${i}`; const scoreOptions=room.settings.bestOf==="BO3"?'<option value="2-0">2 – 0</option><option value="2-1">2 – 1</option><option value="1-2">1 – 2</option><option value="0-2">0 – 2</option>':'<option value="1-0">1 – 0</option><option value="0-1">0 – 1</option>'; const controls=canReport&&!m.isBye&&!m.winnerId?`<div class="report-controls score-entry"><div class="score-entry-title"><span>🏁 บันทึกผลการแข่งขัน</span><small>สกอร์เรียง: ${escapeHtml(a)} – ${escapeHtml(b)}</small></div><label><span>เลือกสกอร์</span><select data-score-match="${i}">${scoreOptions}</select></label><button data-save-result="${i}">✓ ยืนยันผล</button></div>`:""; const editScoreOptions=room.settings.bestOf==="BO3"?['2-0','2-1','1-2','0-2']:['1-0','0-1']; const editWinnerOptions=`<option value="${m.player1Id}" ${m.winnerId===m.player1Id?"selected":""}>${escapeHtml(a)} ชนะ</option><option value="${m.player2Id}" ${m.winnerId===m.player2Id?"selected":""}>${escapeHtml(b)} ชนะ</option>`; const editScoreSelect=editScoreOptions.map(value=>`<option value="${value}" ${m.score===value?"selected":""}>${value}</option>`).join(""); const editControls=canEditResult?`<div class="report-controls score-entry edit-result-controls"><div class="score-entry-title"><span>✏️ แก้ไขผลที่ยืนยันแล้ว</span><small>แก้ได้เฉพาะรอบนี้ ก่อนเริ่มรอบต่อไป</small></div><label><span>ผู้ชนะ</span><select data-edit-winner-match="${i}">${editWinnerOptions}</select></label><label><span>สกอร์</span><select data-edit-score-match="${i}">${editScoreSelect}</select></label><button data-edit-result="${i}">✏️ บันทึกการแก้ไข</button></div>`:""; const chat=canReport&&!m.isBye?`<div class="match-chat"><b>💬 แชทเฉพาะคู่แข่งขัน</b><div class="chat-messages" id="${chatId}-messages"></div><div class="chat-input-row"><input id="${chatId}-input" maxlength="300" placeholder="คุยกับคู่แข่ง"><button id="${chatId}-send">ส่ง</button></div></div>`:""; const pending=m.pendingWinnerId?`รายงาน: ${escapeHtml(room.players[m.pendingWinnerId]?.name||"")} ชนะ (${m.pendingScore||"-"}) — แก้ไขได้ 10 วินาที` : "รอรายงานผล"; const byeText=current.format==="roundRobin"?"พักรอบนี้ (ไม่คิดแต้ม)":"ชนะบาย (+3 แต้ม)";return `<div class="match-card"><div class="match-players"><span>${escapeHtml(a)}</span><span class="vs">VS</span><span>${escapeHtml(b)}</span></div><p class="small-text">${m.isBye?byeText:m.winnerId?`ผู้ชนะ: ${escapeHtml(room.players[m.winnerId]?.name||"")} (${m.score||"-"})`:pending}</p>${controls}${editControls}${teamPreviewHtml(room.players[m.player1Id],`match-${i}-a`)}${m.player2Id?teamPreviewHtml(room.players[m.player2Id],`match-${i}-b`):""}${chat}</div>`}).join("");
+  else pairs.innerHTML=`<h3>รอบ ${current.round} — ${tournamentLabel(current.format)}</h3>`+current.matches.map((m,i)=>{const a=room.players[m.player1Id]?.name||"-",b=m.player2Id?room.players[m.player2Id]?.name:"BYE",canReport=isHost||currentPlayerId===m.player1Id||currentPlayerId===m.player2Id,canEditResult=(isHost||canManageRoom(room))&&!m.isBye&&!!m.winnerId,chatId=`match-chat-${t.history.length-1}-${i}`; const scoreOptions=room.settings.bestOf==="BO3"?'<option value="2-0">2 – 0</option><option value="2-1">2 – 1</option><option value="1-2">1 – 2</option><option value="0-2">0 – 2</option>':'<option value="1-0">1 – 0</option><option value="0-1">0 – 1</option>'; const controls=canReport&&!m.isBye&&!m.winnerId?`<div class="report-controls score-entry"><div class="score-entry-title"><span>🏁 บันทึกผลการแข่งขัน</span><small>สกอร์เรียง: ${escapeHtml(a)} – ${escapeHtml(b)}</small></div><label><span>เลือกสกอร์</span><select data-score-match="${i}">${scoreOptions}</select></label><button data-save-result="${i}">✓ ยืนยันผล</button></div>`:""; const editScoreOptions=room.settings.bestOf==="BO3"?['2-0','2-1','1-2','0-2']:['1-0','0-1']; const editWinnerOptions=`<option value="${m.player1Id}" ${m.winnerId===m.player1Id?"selected":""}>${escapeHtml(a)} ชนะ</option><option value="${m.player2Id}" ${m.winnerId===m.player2Id?"selected":""}>${escapeHtml(b)} ชนะ</option>`; const editScoreSelect=editScoreOptions.map(value=>`<option value="${value}" ${m.score===value?"selected":""}>${value}</option>`).join(""); const editControls=canEditResult?`<div class="report-controls score-entry edit-result-controls"><div class="score-entry-title"><span>✏️ แก้ไขผลที่ยืนยันแล้ว</span><small>แก้ได้เฉพาะรอบนี้ ก่อนเริ่มรอบต่อไป</small></div><label><span>ผู้ชนะ</span><select data-edit-winner-match="${i}">${editWinnerOptions}</select></label><label><span>สกอร์</span><select data-edit-score-match="${i}">${editScoreSelect}</select></label><button data-edit-result="${i}">✏️ บันทึกการแก้ไข</button></div>`:""; const chat=canReport&&!m.isBye?`<div class="match-chat"><b>💬 แชทเฉพาะคู่แข่งขัน</b><div class="chat-messages" id="${chatId}-messages"></div><div class="chat-input-row"><input id="${chatId}-input" maxlength="300" placeholder="คุยกับคู่แข่ง"><button id="${chatId}-send">ส่ง</button></div></div>`:""; const pending=m.pendingWinnerId?`รายงาน: ${escapeHtml(room.players[m.pendingWinnerId]?.name||"")} ชนะ (${m.pendingScore||"-"}) — แก้ไขได้ 10 วินาที` : "รอรายงานผล"; const byeText=current.format==="roundRobin"?"พักรอบนี้ (ไม่คิดแต้ม)":"ชนะบาย (+3 แต้ม)";return `<div class="match-card">${bracketTagHtml(m)}<div class="match-players"><span>${escapeHtml(a)}</span><span class="vs">VS</span><span>${escapeHtml(b)}</span></div><p class="small-text">${m.isBye?byeText:m.winnerId?`ผู้ชนะ: ${escapeHtml(room.players[m.winnerId]?.name||"")} (${m.score||"-"})`:pending}</p>${controls}${editControls}${teamPreviewHtml(room.players[m.player1Id],`match-${i}-a`)}${m.player2Id?teamPreviewHtml(room.players[m.player2Id],`match-${i}-b`):""}${chat}</div>`}).join("");
   pairs.querySelectorAll("button[data-save-result]").forEach(button=>button.addEventListener("click",()=>{const matchIndex=+button.dataset.saveResult,match=current.matches[matchIndex],score=pairs.querySelector(`[data-score-match="${matchIndex}"]`)?.value;const winner=String(score).startsWith("2")||score==="1-0"?match.player1Id:match.player2Id;tournamentAction("result",{round:t.history.length-1,match:matchIndex,winner,score});}));
   pairs.querySelectorAll("button[data-edit-result]").forEach(button=>button.addEventListener("click",()=>{const matchIndex=+button.dataset.editResult,winner=pairs.querySelector(`[data-edit-winner-match="${matchIndex}"]`)?.value,score=pairs.querySelector(`[data-edit-score-match="${matchIndex}"]`)?.value;if(!confirm("ยืนยันแก้ไขผลการแข่งขันนี้?")) return;tournamentAction("editResult",{round:t.history.length-1,match:matchIndex,winner,score});}));
   current?.matches.forEach((match, index) => {
@@ -956,7 +1060,7 @@ async function ensureFirstTournamentRound() {
       ? (tournament.weeklySchedule?.length ? tournament.weeklySchedule : generateRoundRobinSchedule(ids))
       : [];
     tournament.weeklySchedule = weeklySchedule;
-    tournament.history = [{ phaseIndex:tournament.phaseIndex || 0, round:1, format:phase, matches:phase === "roundRobin" ? (weeklySchedule[0]?.matches || []) : makePairs(ids) }];
+    tournament.history = [{ phaseIndex:tournament.phaseIndex || 0, round:1, format:phase, matches:phase === "roundRobin" ? adaptScheduledMatches(room, weeklySchedule[0]?.matches) : makeRoundMatches(phase, ids, [], []) }];
     tournament.round = 0;
     tournament.started = true;
     return room;
@@ -3038,7 +3142,7 @@ function archiveTeamSheetHtml(player, pid, archive, editing) {
   // ส่วน Team Sheet ที่พิมพ์เอง มีข้อมูลครบ จึงโชว์การ์ดแบบละเอียดเหมือนตอนดูทีมระหว่างแข่งขัน (ท่า/ไอเทม/นิสัย/อบิลิตี้)
   const roster = isAuctionTeam
     ? `<div class="auction-sheet-roster team-size-${archive.settings?.teamSize || 10}">${player.team.map((member, index) => `<div class="auction-sheet-member"><img src="${member.sprite || teamSheetSprite(member.displayName)}" alt="${escapeHtml(member.displayName)}"><b>${escapeHtml(member.displayName)}</b>${monTypesHtml(member)}<small>#${index + 1}${member.price ? ` • 💰${Number(member.price).toLocaleString()}` : ""}</small></div>`).join("")}</div>`
-    : (team.length ? sheetViewerHtml("archive-" + pid, sheetMonsOf(player), { showEvs: false }) : '<p class="archives-empty">ยังไม่ได้ส่ง Team Sheet</p>');
+    : (team.length ? sheetViewerHtml("archive-" + pid, sheetMonsOf(player), { showEvs: false, matchups: "closed" }) : '<p class="archives-empty">ยังไม่ได้ส่ง Team Sheet</p>');
   return `<article class="archive-team-sheet">
     <header><div><h3>${escapeHtml(player.name || "ผู้เล่น")}${pid === archive.hostId ? ' <span class="badge">HOST</span>' : ''}</h3><p>${source} • ${team.length || 0}/${isAuctionTeam ? (archive.settings?.teamSize || 10) : 6} ตัว</p></div></header>
     ${roster}
@@ -3069,7 +3173,7 @@ function renderArchiveMatchHistory(archive) {
       const p1 = archive.players?.[match.player1Id], p2 = archive.players?.[match.player2Id];
       if (match.isBye) return `<div class="history-match bye-card"><b>${escapeHtml(p1?.name || "?")}</b><span class="badge">${round.format === "roundRobin" ? "พักรอบนี้ • 0 แต้ม" : "BYE • ชนะ +3"}</span></div>`;
       const p1Won = match.winnerId === match.player1Id, p2Won = match.winnerId === match.player2Id;
-      return `<div class="history-match"><span class="${p1Won ? "winner-name" : ""}">${escapeHtml(p1?.name || "?")}</span><b class="history-score">${escapeHtml(match.score || "VS")}</b><span class="${p2Won ? "winner-name" : ""}">${escapeHtml(p2?.name || "?")}</span><small>${match.winnerId ? `ชนะ: ${escapeHtml(archive.players?.[match.winnerId]?.name || "?")}` : "ยังไม่ได้แข่ง"}</small></div>`;
+      return `<div class="history-match"><span class="${p1Won ? "winner-name" : ""}">${escapeHtml(p1?.name || "?")}</span><b class="history-score">${escapeHtml(match.score || "VS")}</b><span class="${p2Won ? "winner-name" : ""}">${escapeHtml(p2?.name || "?")}</span><small>${bracketTagHtml(match)}${match.winnerId ? `ชนะ: ${escapeHtml(archive.players?.[match.winnerId]?.name || "?")}` : "ยังไม่ได้แข่ง"}</small></div>`;
     }).join("")}</section>`;
   };
   section.innerHTML = `<div id="adet-match-history" class="archive-match-history"><div class="week-tabs history-round-tabs">${labels.map((label, index) => `<button class="week-tab-btn ${index === 0 ? "active" : ""}" data-history-round="${index}">${escapeHtml(label)}</button>`).join("")}</div><div id="adet-history-round-content">${renderRound(0)}</div></div><h3 style="margin:20px 0 10px;">📊 ตารางคะแนน</h3><table class="standings-table" id="adet-standings-table"></table>`;
@@ -4194,15 +4298,31 @@ const sheetSpriteResolved = new Map();
 function typeLookupIds(entry) {
   const ids = [];
   const add = v => { const id = toID(v); if (id && !ids.includes(id)) ids.push(id); };
+  const norm = v => String(v || "").toLowerCase();
+  let isMega = false;
+  [entry.apiName, entry.id].forEach(v => {
+    // รูปแบบเมก้าของแอป: mega-<ชื่อ>[-x|-y|-z]  ->  Showdown: <ชื่อ>mega[x|y|z]
+    const mm = norm(v).match(/^mega-(.+?)(?:-(x|y|z))?$/);
+    if (mm) { isMega = true; add(`${mm[1]}mega${mm[2] || ""}`); }
+  });
   add(entry.apiName); add(entry.id); add(entry.displayName);
-  const strip = /^(.*)-(incarnate|male|female|midday|shield|average|amped|ordinary|solo|standard|disguised|plant|normal|altered|aria|full-belly|single-strike|zero|curly|baile|blade|land|50|two-segment|family-of-four|green-plumage)$/;
-  [entry.apiName, entry.id].forEach(v => { const m = String(v || "").match(strip); if (m) add(m[1]); });
+  // ร่างที่ไม่ใช่เมก้า: ตัดท้ายทีละส่วน เช่น aegislash-shield -> aegislash, alcremie-vanilla-cream -> alcremie
+  if (!isMega) {
+    [entry.apiName, entry.id].forEach(v => {
+      const parts = norm(v).split("-");
+      while (parts.length > 1) { parts.pop(); add(parts.join("-")); }
+    });
+  }
   return ids;
 }
-function monTypes(entry) {
+function dexEntryFor(entry) {
   if (!DEX.pokedexReady || !entry) return null;
-  for (const id of typeLookupIds(entry)) { const sp = DEX.pokedex[id]; if (sp && sp.types) return sp.types; }
+  for (const id of typeLookupIds(entry)) { const sp = DEX.pokedex[id]; if (sp) return sp; }
   return null;
+}
+function monTypes(entry) {
+  const sp = dexEntryFor(entry);
+  return sp && sp.types ? sp.types : null;
 }
 function monTypesInner(entry) { const t = monTypes(entry); return t ? t.map(sheetTypeBadge).join("") : ""; }
 // ใส่ใน template ได้เลย ถ้ายังโหลดข้อมูลไม่เสร็จจะเป็นกล่องว่างแล้วเติมให้เองทีหลัง
@@ -4224,6 +4344,80 @@ function scheduleMonTypes(node) {
   if (monTypesLoading) return;
   monTypesLoading = true;
   loadPokedexOnly().then(() => fillMonTypes(document.body)).catch(() => {}).finally(() => { monTypesLoading = false; });
+}
+
+// ---------- ตารางแพ้ทาง / ต้านทาน (Defensive matchups) ----------
+const SHEET_TYPE_ORDER = ["Normal", "Fire", "Water", "Electric", "Grass", "Ice", "Fighting", "Poison", "Ground", "Flying", "Psychic", "Bug", "Rock", "Ghost", "Dragon", "Dark", "Steel", "Fairy"];
+// ธาตุโจมตี -> [ได้ผลดี 2×, ได้ผลน้อย ½×, ไม่ได้ผล 0×]
+const SHEET_TYPE_CHART = {
+  Normal: [[], ["Rock", "Steel"], ["Ghost"]],
+  Fire: [["Grass", "Ice", "Bug", "Steel"], ["Fire", "Water", "Rock", "Dragon"], []],
+  Water: [["Fire", "Ground", "Rock"], ["Water", "Grass", "Dragon"], []],
+  Electric: [["Water", "Flying"], ["Electric", "Grass", "Dragon"], ["Ground"]],
+  Grass: [["Water", "Ground", "Rock"], ["Fire", "Grass", "Poison", "Flying", "Bug", "Dragon", "Steel"], []],
+  Ice: [["Grass", "Ground", "Flying", "Dragon"], ["Fire", "Water", "Ice", "Steel"], []],
+  Fighting: [["Normal", "Ice", "Rock", "Dark", "Steel"], ["Poison", "Flying", "Psychic", "Bug", "Fairy"], ["Ghost"]],
+  Poison: [["Grass", "Fairy"], ["Poison", "Ground", "Rock", "Ghost"], ["Steel"]],
+  Ground: [["Fire", "Electric", "Poison", "Rock", "Steel"], ["Grass", "Bug"], ["Flying"]],
+  Flying: [["Grass", "Fighting", "Bug"], ["Electric", "Rock", "Steel"], []],
+  Psychic: [["Fighting", "Poison"], ["Psychic", "Steel"], ["Dark"]],
+  Bug: [["Grass", "Psychic", "Dark"], ["Fire", "Fighting", "Poison", "Flying", "Ghost", "Steel", "Fairy"], []],
+  Rock: [["Fire", "Ice", "Flying", "Bug"], ["Fighting", "Ground", "Steel"], []],
+  Ghost: [["Psychic", "Ghost"], ["Dark"], ["Normal"]],
+  Dragon: [["Dragon"], ["Steel"], ["Fairy"]],
+  Dark: [["Psychic", "Ghost"], ["Fighting", "Dark", "Fairy"], []],
+  Steel: [["Ice", "Rock", "Fairy"], ["Fire", "Water", "Electric", "Steel"], []],
+  Fairy: [["Fighting", "Dragon", "Dark"], ["Fire", "Poison", "Steel"], []]
+};
+// อบิลิตี้ที่เปลี่ยนความเสียหายจากธาตุ (0 = ไม่โดน)
+const SHEET_ABILITY_MODS = {
+  levitate: { Ground: 0 }, eartheater: { Ground: 0 }, flashfire: { Fire: 0 }, wellbakedbody: { Fire: 0 },
+  waterabsorb: { Water: 0 }, stormdrain: { Water: 0 }, dryskin: { Water: 0 },
+  voltabsorb: { Electric: 0 }, lightningrod: { Electric: 0 }, motordrive: { Electric: 0 }, sapsipper: { Grass: 0 },
+  thickfat: { Fire: 0.5, Ice: 0.5 }, heatproof: { Fire: 0.5 }, waterbubble: { Fire: 0.5 }, purifyingsalt: { Ghost: 0.5 }
+};
+function sheetTypeMult(attack, defTypes) {
+  const [se, nve, imm] = SHEET_TYPE_CHART[attack] || [[], [], []];
+  let m = 1;
+  for (const t of defTypes) {
+    if (imm.includes(t)) return 0;
+    if (se.includes(t)) m *= 2;
+    if (nve.includes(t)) m *= 0.5;
+  }
+  return m;
+}
+function sheetDefMult(attack, d) {
+  let mult = sheetTypeMult(attack, d.types);
+  const mod = SHEET_ABILITY_MODS[toID(d.ability)]?.[attack];
+  const byAbility = mod !== undefined;
+  if (byAbility) mult = mod === 0 ? 0 : mult * mod;
+  return { mult, byAbility };
+}
+function sheetMultCell(r) {
+  const { mult, byAbility } = r;
+  if (mult === 1) return "";
+  const label = mult === 0 ? "0" : mult === 0.25 ? "¼" : mult === 0.5 ? "½" : mult === 4 ? "4×" : "2×";
+  const cls = mult === 0 ? "im" : mult < 1 ? (mult < 0.5 ? "r4" : "r") : (mult > 2 ? "w4" : "w2");
+  return `<span class="mu-cell ${cls}"${byAbility ? ' title="จากอบิลิตี้"' : ""}>${label}${byAbility ? "*" : ""}</span>`;
+}
+function sheetMatchupsHtml(st) {
+  if (!st.matchups) return "";
+  const btn = `<button type="button" class="sheet-mu-toggle" data-sheet-mu>🛡️ ตารางแพ้ทาง / ต้านทาน ${st.mu ? "▲" : "▼"}</button>`;
+  if (!st.mu) return `<div class="sheet-mu">${btn}</div>`;
+  if (!DEX.pokedexReady) return `<div class="sheet-mu">${btn}<p class="small-text">กำลังโหลดข้อมูลธาตุ...</p></div>`;
+  const members = st.mons.map((m, i) => sheetDisplay(st, m, i));
+  if (!members.some(d => d.types.length)) return `<div class="sheet-mu">${btn}<p class="small-text">ไม่พบข้อมูลธาตุของโปเกม่อนในทีม</p></div>`;
+  const head = members.map(d => `<th><img class="sheet-mu-icon" src="${escapeHtml(sheetSpriteResolved.get(d.name) || teamSheetSprite(d.name))}" data-poke-name="${escapeHtml(d.name)}" alt="${escapeHtml(d.name)}" title="${escapeHtml(d.name)}" onerror="this.style.visibility='hidden'"></th>`).join("");
+  const rows = SHEET_TYPE_ORDER.map(att => {
+    let weak = 0, resist = 0;
+    const cells = members.map(d => {
+      const r = sheetDefMult(att, d);
+      if (r.mult > 1) weak++; else if (r.mult < 1) resist++;
+      return `<td>${sheetMultCell(r)}</td>`;
+    }).join("");
+    return `<tr><th scope="row"><span class="type-badge" style="--tc:${SHEET_TYPE_COLORS[att]}">${att}</span></th>${cells}<td class="mu-weak">${weak || "—"}</td><td class="mu-res">${resist || "—"}</td></tr>`;
+  }).join("");
+  return `<div class="sheet-mu">${btn}<div class="sheet-mu-scroll"><table class="sheet-mu-table"><thead><tr><th>ATTACK TYPE</th>${head}<th class="mu-weak">WEAK</th><th class="mu-res">RESIST</th></tr></thead><tbody>${rows}</tbody></table></div><p class="sheet-note">คำนวณจากธาตุ + อบิลิตี้ที่ใส่ไว้ (* = ผลจากอบิลิตี้ เช่น Levitate, Lightning Rod) ตามร่างที่แสดงอยู่ กดเมก้าที่การ์ดเพื่อดูร่างเมก้า</p></div>`;
 }
 
 function sheetForms(mon) {
@@ -4326,12 +4520,12 @@ function sheetViewerInner(id) {
   if (st.focus && !st.mons[st.focus.mon]) st.focus = null;
   const head = (st.title || st.code) ? `<div class="sheet-title">${st.title ? `<h3>${escapeHtml(st.title)}</h3>` : ""}${st.code ? `<p>Team ID: ${escapeHtml(st.code)}</p>` : ""}</div>` : "";
   const cards = st.mons.map((m, i) => sheetCardHtml(st, m, i)).join("") || '<p class="small-text">ยังไม่มีโปเกม่อนในทีม</p>';
-  return `${head}<div class="sheet-layout"><div class="sheet-grid">${cards}</div>${st.focus ? `<aside class="sheet-side">${sheetPanelHtml(st)}</aside>` : ""}</div>`;
+  return `${head}<div class="sheet-layout"><div class="sheet-grid">${cards}</div>${st.focus ? `<aside class="sheet-side">${sheetPanelHtml(st)}</aside>` : ""}</div>${sheetMatchupsHtml(st)}`;
 }
 // id ต้องคงที่ต่อจุดแสดงผล เพื่อให้จำสถานะ (โปเกม่อนที่เปิดดู/เมก้า) ข้ามการเรนเดอร์ใหม่ได้
 function sheetViewerHtml(id, mons, opts = {}) {
   const prev = sheetRegistry.get(id);
-  sheetRegistry.set(id, { mons: mons || [], showEvs: !!opts.showEvs, title: opts.title || "", code: opts.code || "", focus: prev?.focus || null, mega: prev?.mega || {} });
+  sheetRegistry.set(id, { mons: mons || [], showEvs: !!opts.showEvs, title: opts.title || "", code: opts.code || "", focus: prev?.focus || null, mega: prev?.mega || {}, matchups: !!opts.matchups, mu: prev ? prev.mu : opts.matchups === "open" });
   return `<div class="sheet-viewer" data-sheet-id="${escapeHtml(id)}" data-dex="${DEX.ready ? 1 : 0}">${sheetViewerInner(id)}</div>`;
 }
 async function hydrateSheetSprites(root) {
@@ -4364,6 +4558,7 @@ document.addEventListener("click", (event) => {
   const monIdx = card ? Number(card.dataset.sheetCard) : null;
   let changed = true;
   if (t.closest("[data-sheet-close]")) st.focus = null;
+  else if (t.closest("[data-sheet-mu]")) st.mu = !st.mu;
   else if (t.closest("[data-sheet-mega]")) {
     const i = Number(t.closest("[data-sheet-mega]").dataset.sheetMega);
     st.mega[i] = !sheetDisplay(st, st.mons[i], i).megaOn;
@@ -4390,7 +4585,7 @@ if (typeof MutationObserver !== "undefined") {
 
 // ---------- Team Builder ----------
 const TB_LIMIT = 3;
-const builder = { uid: "", failedAt: 0, loaded: false, loading: null, teams: {}, view: "list", editingId: null, draft: null, slot: 0, previewTimer: null };
+const builder = { megaView: {}, uid: "", failedAt: 0, loaded: false, loading: null, teams: {}, view: "list", editingId: null, draft: null, slot: 0, previewTimer: null };
 function tbBlankMon() { return { species: "", nickname: "", gender: "", item: "", ability: "", nature: "", level: "", moves: ["", "", "", ""], evs: null }; }
 function tbBlankDraft() { return { name: "", code: "", evMode: "sp", mons: Array.from({ length: 6 }, tbBlankMon) }; }
 function tbNormalizeMon(m) {
@@ -4441,22 +4636,6 @@ function tbRecordFromDraft() {
   };
 }
 
-function tbOptionHtml(names) { return names.map(n => `<option value="${escapeHtml(n)}"></option>`).join(""); }
-function tbFillDatalists() {
-  const set = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
-  const species = DEX.ready ? DEX.speciesNames : POKEMON_LIST.filter(p => !p.isMega).map(p => p.displayName);
-  set("tb-dl-species", tbOptionHtml(species));
-  set("tb-dl-items", tbOptionHtml(DEX.itemNames));
-  set("tb-dl-moves", tbOptionHtml(DEX.moveNames));
-  tbFillAbilityList(builder.draft?.mons?.[builder.slot]?.species);
-}
-function tbFillAbilityList(species) {
-  const el = document.getElementById("tb-dl-abilities");
-  if (!el) return;
-  const sp = dexSpecies(species);
-  el.innerHTML = sp ? tbOptionHtml(Object.values(sp.abilities || {})) : "";
-}
-
 function tbListHtml() {
   const teams = tbSortedTeams();
   const cards = teams.map(([id, t]) => {
@@ -4471,23 +4650,6 @@ function tbListHtml() {
     <button type="button" class="primary" data-tb="new" ${full ? "disabled" : ""}>➕ สร้างทีมใหม่</button>
     ${full ? '<p class="small-text">ครบ 3 ทีมแล้ว ลบทีมเก่าก่อนถึงจะสร้างทีมใหม่ได้</p>' : ""}`;
 }
-function tbSlotFormHtml() {
-  const d = builder.draft, m = d.mons[builder.slot], lim = tbEvLimits(d.evMode);
-  const natOpts = '<option value="">— ไม่ระบุ —</option>' + SHEET_NATURE_NAMES.map(n => {
-    const nat = sheetNature(n);
-    return `<option value="${n}"${toID(m.nature) === toID(n) ? " selected" : ""}>${n}${nat ? ` (${SHEET_STAT_LABELS[nat.plus]}↑ ${SHEET_STAT_LABELS[nat.minus]}↓)` : ""}</option>`;
-  }).join("");
-  const evs = SHEET_STATS.map(k => `<label class="tb-ev"><span>${SHEET_STAT_LABELS[k]}</span><input type="number" inputmode="numeric" min="0" max="${lim.per}" placeholder="0" data-tb-field="ev:${k}" value="${Number(m.evs?.[k]) > 0 ? Number(m.evs[k]) : ""}"></label>`).join("");
-  const moves = [0, 1, 2, 3].map(i => `<input type="text" list="tb-dl-moves" placeholder="ท่าที่ ${i + 1}" data-tb-field="move${i}" value="${escapeHtml(m.moves[i] || "")}" autocomplete="off">`).join("");
-  return `<div class="tb-slot-form">
-    <label class="field-label">โปเกม่อน</label><input type="text" list="tb-dl-species" placeholder="พิมพ์ชื่อ เช่น Garchomp" data-tb-field="species" value="${escapeHtml(m.species)}" autocomplete="off">
-    <div class="tb-two"><div><label class="field-label">ไอเทม</label><input type="text" list="tb-dl-items" placeholder="เช่น Garchompite Z" data-tb-field="item" value="${escapeHtml(m.item)}" autocomplete="off"></div>
-    <div><label class="field-label">อบิลิตี้</label><input type="text" list="tb-dl-abilities" placeholder="เช่น Rough Skin" data-tb-field="ability" value="${escapeHtml(m.ability)}" autocomplete="off"></div></div>
-    <label class="field-label">นิสัย</label><select data-tb-field="nature">${natOpts}</select>
-    <label class="field-label">ท่า (4 ท่า)</label><div class="tb-moves">${moves}</div>
-    <label class="field-label">EV (ใส่หรือไม่ใส่ก็ได้) <small id="tb-ev-total">รวม ${tbEvTotal(m)}/${lim.total}</small></label><div class="tb-evs">${evs}</div>
-    <button type="button" class="btn-leave-small" data-tb="clear-slot">🧹 ล้างช่องนี้</button></div>`;
-}
 function tbEditorHtml() {
   const d = builder.draft;
   const tabs = d.mons.map((m, i) => `<button type="button" class="tb-slot-tab${i === builder.slot ? " active" : ""}" data-tb="slot" data-i="${i}">${i + 1}. ${escapeHtml(m.species || "ว่าง")}</button>`).join("");
@@ -4501,7 +4663,6 @@ function tbEditorHtml() {
     <select data-tb-field="evmode"><option value="sp"${d.evMode === "sp" ? " selected" : ""}>Stat Points (สูงสุด 32 ต่อค่า รวม 66)</option><option value="ev"${d.evMode === "ev" ? " selected" : ""}>EV แบบเดิม (สูงสุด 252 ต่อค่า รวม 510)</option></select>
     <div class="tb-slot-tabs">${tabs}</div>
     <div id="tb-slot-form">${tbSlotFormHtml()}</div>
-    <datalist id="tb-dl-species"></datalist><datalist id="tb-dl-items"></datalist><datalist id="tb-dl-moves"></datalist><datalist id="tb-dl-abilities"></datalist>
     <h3 class="tb-preview-title">ตัวอย่างชีท (กดท่า/โปเกม่อนเพื่อดูรายละเอียด)</h3>
     <div id="tb-preview"></div>
     <div class="tb-actions"><button type="button" class="primary" data-tb="save">💾 บันทึกทีม</button><button type="button" class="btn-leave-small" data-tb="copy">📋 คัดลอกเป็นโค้ด Showdown</button></div>`;
@@ -4510,13 +4671,17 @@ function tbRender() {
   const panel = document.getElementById("tb-panel");
   if (!panel) return;
   panel.innerHTML = builder.view === "edit" ? tbEditorHtml() : tbListHtml();
-  if (builder.view === "edit") { tbFillDatalists(); tbUpdatePreview(); }
+  if (builder.view === "edit") {
+    tbUpdatePreview();
+    hydrateSheetSprites(panel);
+    loadDex().then(() => { if (builder.view === "edit") tbRefreshSlot(); }).catch(() => {});
+  }
 }
 function tbUpdatePreview() {
   const el = document.getElementById("tb-preview");
   if (!el) return;
   const d = builder.draft;
-  el.innerHTML = sheetViewerHtml("builder", tbCleanMons(), { showEvs: true, title: d.name.trim(), code: d.code.trim() });
+  el.innerHTML = sheetViewerHtml("builder", tbCleanMons(), { showEvs: true, matchups: "open", title: d.name.trim(), code: d.code.trim() });
 }
 function tbSchedulePreview() {
   clearTimeout(builder.previewTimer);
@@ -4537,7 +4702,7 @@ function openTeamBuilder() {
     console.error("load teams failed:", error);
     panel.innerHTML = '<div class="tb-head"><h2>🧩 Team Builder</h2><button type="button" class="btn-leave-small" data-tb="close">✕ ปิด</button></div><p class="error">โหลดทีมไม่สำเร็จ (ตรวจอินเทอร์เน็ต และตรวจว่าอัปเดต Database Rules ส่วน userTeams แล้ว)</p>';
   });
-  loadDex().then(() => { if (builder.view === "edit") { tbFillDatalists(); tbUpdatePreview(); } }).catch(() => {});
+  loadDex().then(() => { if (builder.view === "edit") tbRefreshSlot(); }).catch(() => {});
 }
 function closeTeamBuilder() {
   document.getElementById("screen-teambuilder")?.classList.add("hidden");
@@ -4567,11 +4732,291 @@ async function tbSave() {
     alert("บันทึกไม่สำเร็จ (ตรวจอินเทอร์เน็ต และตรวจว่าอัปเดต Database Rules ส่วน userTeams แล้ว)");
   }
 }
+function tbSetSpecies(value) {
+  const m = builder.draft.mons[builder.slot];
+  m.species = value;
+  delete builder.megaView[builder.slot];
+  const sp = dexSpecies(value);
+  if (sp) {
+    const list = Object.values(sp.abilities || {});
+    if (!list.some(a => toID(a) === toID(m.ability))) m.ability = list[0] || "";
+  }
+}
+function tbAbilityChipsHtml(m) {
+  const sp = dexSpecies(m.species);
+  if (!sp) {
+    return `<input type="text" placeholder="พิมพ์ชื่ออบิลิตี้ (เช่น Rough Skin)" data-tb-field="ability" value="${escapeHtml(m.ability)}" autocomplete="off">`;
+  }
+  const opts = Object.entries(sp.abilities || {}).map(([slot, name]) => ({ name, label: slot === "H" ? "Hidden" : slot === "S" ? "Special" : `Ability ${Number(slot) + 1}` }));
+  const known = opts.some(o => toID(o.name) === toID(m.ability));
+  const chips = opts.map(o => {
+    const info = dexAbility(o.name);
+    return `<button type="button" class="tb-ability${toID(o.name) === toID(m.ability) ? " on" : ""}" data-tb="ability" data-name="${escapeHtml(o.name)}" title="${escapeHtml(info?.shortDesc || "")}"><b>${escapeHtml(o.name)}</b><small>${o.label}</small></button>`;
+  });
+  if (m.ability && !known) chips.push(`<button type="button" class="tb-ability on" data-tb="ability" data-name="${escapeHtml(m.ability)}"><b>${escapeHtml(m.ability)}</b><small>กำหนดเอง</small></button>`);
+  const desc = dexAbility(m.ability)?.shortDesc;
+  return `<div class="tb-ability-list">${chips.join("")}</div>${desc ? `<p class="small-text tb-ability-desc">${escapeHtml(desc)}</p>` : ""}`;
+}
+// ---------- ค่าพลังในเกม (Lv.50) + แถบ SP ----------
+// สูตร: inner = floor((2*base + 31 + floor(EV/4)) * 50 / 100)  (1 SP = 8 EV = +1 ค่าพลัง)
+//       HP = inner + 60 / อื่นๆ = floor((inner + 5) * นิสัย)   ตรวจกับภาพ: Rillaboom SP 0 -> 175/145/110/80/90/105 (รวม 705)
+const SHEET_STAT_COLORS = { hp: "#2fd493", atk: "#ff5d73", def: "#f5c542", spa: "#25b7ff", spd: "#a78bfa", spe: "#ee5bd8" };
+function sheetCalcStat(key, base, points, mode, effect10 = 10) {
+  const ev = mode === "ev" ? points : points * 8;
+  const inner = Math.floor((2 * base + 31 + Math.floor(ev / 4)) * 50 / 100);
+  if (key === "hp") return inner + 60;
+  return Math.floor((inner + 5) * effect10 / 10);
+}
+function tbFormView(slot) {
+  const m = builder.draft.mons[slot];
+  const forms = sheetForms(m);
+  const defaultMega = !!(forms.mega && forms.species === forms.mega);
+  const megaOn = !!forms.mega && (builder.megaView[slot] ?? defaultMega);
+  const base = forms.base || forms.species;
+  return { forms, megaOn, base, entry: megaOn ? forms.mega : base };
+}
+function tbStatBlock(slot) {
+  const d = builder.draft, m = d.mons[slot], v = tbFormView(slot), nat = sheetNature(m.nature);
+  if (!v.entry?.baseStats) return null;
+  const normal = v.base || v.entry;
+  return SHEET_STATS.map(k => {
+    const sp = Number(m.evs?.[k]) || 0;
+    const effect = nat?.plus === k ? 11 : nat?.minus === k ? 9 : 10;
+    const calc = (b, s) => sheetCalcStat(k, b, s, d.evMode, effect);
+    const base = v.entry.baseStats[k];
+    return { key: k, base, sp, final: calc(base, sp), finalNoSp: calc(base, 0), baseNormal: normal.baseStats[k], finalNormal: calc(normal.baseStats[k], sp), nat: effect === 11 ? "up" : effect === 9 ? "down" : "" };
+  });
+}
+function tbStatScale(key) { return key === "hp" ? 370 : 270; }
+function tbDelta(n) { return `<em class="tb-delta ${n > 0 ? "plus" : n < 0 ? "minus" : ""}">${n > 0 ? "+" : ""}${n}</em>`; }
+function tbStatViewHtml(s, showDelta) {
+  const color = SHEET_STAT_COLORS[s.key], scale = tbStatScale(s.key);
+  const w1 = Math.min(100, s.finalNoSp / scale * 100), w2 = Math.min(100 - w1, (s.final - s.finalNoSp) / scale * 100);
+  const arrow = s.nat === "up" ? "▲" : s.nat === "down" ? "▼" : "";
+  return `<div class="tb-stat-line"><b class="tb-stat-label" style="color:${color}">${SHEET_STAT_LABELS[s.key].toUpperCase()}</b>
+      <span class="tb-stat-base" title="Base stat">${s.base}${showDelta ? tbDelta(s.base - s.baseNormal) : ""}</span><span class="tb-stat-sep">/</span>
+      <span class="tb-stat-final ${s.nat}" title="ค่าพลังในเกม (Lv.50)">${s.final}${arrow}${showDelta ? tbDelta(s.final - s.finalNormal) : ""}</span></div>
+    <div class="tb-bar tb-bar-base" style="--c:${color}" title="Base"><i style="width:${Math.min(100, s.base / 255 * 100)}%"></i></div>
+    <div class="tb-bar tb-meter" style="--c:${color}" title="ค่าพลังในเกม"><i class="tb-meter-base" style="width:${w1}%"></i><i class="tb-meter-sp" style="width:${w2}%"></i></div>`;
+}
+function tbSpControlsHtml(k, sp, lim, mode) {
+  const color = SHEET_STAT_COLORS[k];
+  return `<div class="tb-sp"><button type="button" class="tb-step" data-tb="sp-dec" data-k="${k}" aria-label="ลด">−</button>
+    <input type="range" class="tb-slider" style="--c:${color}" min="0" max="${lim.per}" step="${mode === "ev" ? 4 : 1}" value="${sp}" data-tb-field="ev:${k}" aria-label="${SHEET_STAT_LABELS[k]}">
+    <input type="number" class="tb-sp-num" inputmode="numeric" min="0" max="${lim.per}" placeholder="0" value="${sp > 0 ? sp : ""}" data-tb-field="ev:${k}">
+    <button type="button" class="tb-step" data-tb="sp-inc" data-k="${k}" aria-label="เพิ่ม">+</button></div>`;
+}
+function tbStatsSectionHtml(slot) {
+  const d = builder.draft, m = d.mons[slot], lim = tbEvLimits(d.evMode), v = tbFormView(slot), block = tbStatBlock(slot);
+  const showDelta = !!(v.megaOn && v.forms.mega && v.base && v.entry !== v.base);
+  const natOpts = '<option value="">— ไม่ระบุ (นิสัยกลาง) —</option>' + SHEET_NATURE_NAMES.map(n => {
+    const nat = sheetNature(n);
+    return `<option value="${n}"${toID(m.nature) === toID(n) ? " selected" : ""}>${n}${nat ? ` (${SHEET_STAT_LABELS[nat.plus]}↑ ${SHEET_STAT_LABELS[nat.minus]}↓)` : ""}</option>`;
+  }).join("");
+  const rows = SHEET_STATS.map((k, i) => {
+    const s = block?.[i];
+    const view = s ? tbStatViewHtml(s, showDelta) : `<div class="tb-stat-line"><b class="tb-stat-label" style="color:${SHEET_STAT_COLORS[k]}">${SHEET_STAT_LABELS[k].toUpperCase()}</b></div>`;
+    return `<div class="tb-stat-row" data-stat-row="${k}"><div class="tb-stat-view" data-view="${k}">${view}</div>${tbSpControlsHtml(k, Number(m.evs?.[k]) || 0, lim, d.evMode)}</div>`;
+  }).join("");
+  const total = block ? block.reduce((sum, s) => sum + s.final, 0) : "—";
+  const megaBtn = v.forms.mega ? `<button type="button" class="tb-mega-btn${v.megaOn ? " on" : ""}" data-tb="mega-toggle">✦ ${v.megaOn ? "Normal form" : "Mega Evolve"}</button>` : "";
+  return `<div class="tb-stats" id="tb-stats">
+    <div class="tb-stats-head"><b>ค่าพลัง Lv.50</b><span class="tb-legend">BASE / ในเกม</span>${megaBtn}</div>
+    ${v.megaOn && v.forms.mega ? `<p class="small-text">ร่างเมก้า • อบิลิตี้: ${escapeHtml(v.forms.mega.abilities?.["0"] || "-")} • ตัวเลขเขียว/แดงคือส่วนที่เพิ่ม/ลดจากร่างปกติ</p>` : ""}
+    <label class="field-label">นิสัย (ตัวเลขแดง = เพิ่ม 10% • น้ำเงิน = ลด 10%)</label><select data-tb-field="nature">${natOpts}</select>
+    <div class="tb-stat-rows">${rows}</div>
+    <div class="tb-stat-total"><span>${d.evMode === "ev" ? "EV" : "แต้ม SP"}คงเหลือ <b id="tb-sp-left">${lim.total - tbEvTotal(m)}</b> / ${lim.total}</span><span>รวมค่าพลัง <b id="tb-stat-total">${total}</b></span><button type="button" class="btn-leave-small" data-tb="sp-reset">↺ รีเซ็ต</button></div>
+  </div>`;
+}
+// อัปเดตตัวเลข/แท่งในที่เดิมระหว่างลากสไลเดอร์ (ไม่วาดฟอร์มใหม่ เพื่อไม่ให้การลากสะดุด)
+function tbUpdateStats() {
+  const wrap = document.getElementById("tb-stats");
+  const block = tbStatBlock(builder.slot);
+  if (!wrap || !block || !wrap.querySelector) return;
+  const d = builder.draft, m = d.mons[builder.slot], lim = tbEvLimits(d.evMode), v = tbFormView(builder.slot);
+  const showDelta = !!(v.megaOn && v.forms.mega && v.base && v.entry !== v.base);
+  block.forEach(s => { const el = wrap.querySelector(`[data-view="${s.key}"]`); if (el) el.innerHTML = tbStatViewHtml(s, showDelta); });
+  const left = wrap.querySelector("#tb-sp-left"), total = wrap.querySelector("#tb-stat-total");
+  if (left) left.textContent = lim.total - tbEvTotal(m);
+  if (total) total.textContent = block.reduce((sum, s) => sum + s.final, 0);
+}
+function tbSyncSpInputs(key, n, source) {
+  const wrap = document.getElementById("tb-stats");
+  if (!wrap || !wrap.querySelectorAll) return;
+  wrap.querySelectorAll(`[data-tb-field="ev:${key}"]`).forEach(el => { if (el !== source) el.value = el.type === "range" ? n : (n > 0 ? n : ""); });
+}
+function tbStepSp(key, dir) {
+  const d = builder.draft, m = d.mons[builder.slot], lim = tbEvLimits(d.evMode);
+  m.evs = m.evs || {};
+  const others = SHEET_STATS.reduce((sum, k) => sum + (k === key ? 0 : (Number(m.evs[k]) || 0)), 0);
+  m.evs[key] = Math.max(0, Math.min((Number(m.evs[key]) || 0) + dir * (d.evMode === "ev" ? 4 : 1), lim.per, Math.max(0, lim.total - others)));
+  tbRefreshSlot();
+}
+function tbSyncPreviewMega(slot, on) {
+  const idx = builder.draft.mons.slice(0, slot).filter(x => x.species.trim()).length;
+  const st = sheetRegistry.get("builder");
+  if (st) st.mega[idx] = on;
+}
+function tbSlotFormHtml() {
+  const d = builder.draft, m = d.mons[builder.slot];
+  const v = tbFormView(builder.slot);
+  const name = v.entry?.name || m.species.trim();
+  const sprite = name ? (sheetSpriteResolved.get(name) || teamSheetSprite(name)) : "";
+  const hero = name ? `<img class="tb-hero" src="${escapeHtml(sprite)}" data-poke-name="${escapeHtml(name)}" alt="" onerror="this.style.visibility='hidden'">` : '<div class="tb-hero empty">?</div>';
+  const moves = [0, 1, 2, 3].map(i => {
+    const mv = m.moves[i], info = dexMove(mv);
+    return `<button type="button" class="tb-pick tb-pick-move${mv ? " filled" : ""}" data-tb="pick-move" data-i="${i}"><i style="background:${info ? (SHEET_TYPE_COLORS[info.type] || "#7d8bb0") : "#7d8bb0"}"></i><span>${mv ? escapeHtml(mv) : `ท่าที่ ${i + 1}`}</span><em>▾</em></button>`;
+  }).join("");
+  return `<div class="tb-slot-form">
+    <div class="tb-slot-top">
+      <div class="tb-hero-col">${hero}<div class="tb-hero-types">${(v.entry?.types || []).map(sheetTypeBadge).join("")}</div></div>
+      <div class="tb-slot-fields">
+        <label class="field-label">โปเกม่อน</label>
+        <button type="button" class="tb-pick${name ? " filled" : ""}" data-tb="pick-species"><span>${name ? escapeHtml(name) : "เลือกโปเกม่อน"}</span><em>▾</em></button>
+        <label class="field-label">ไอเทม</label>
+        <button type="button" class="tb-pick${m.item ? " filled" : ""}" data-tb="pick-item"><span class="tb-pick-icon">${sheetItemIconHtml(m.item)}</span><span>${m.item ? escapeHtml(m.item) : "เลือกไอเทม"}</span><em>▾</em></button>
+      </div>
+    </div>
+    <label class="field-label">อบิลิตี้ (กดเลือก)</label>${tbAbilityChipsHtml(m)}
+    <label class="field-label">ท่า (4 ท่า)</label><div class="tb-moves">${moves}</div>
+    ${tbStatsSectionHtml(builder.slot)}
+    <button type="button" class="btn-leave-small" data-tb="clear-slot">🧹 ล้างช่องนี้</button></div>`;
+}
+function tbRefreshSlot() {
+  const form = document.getElementById("tb-slot-form");
+  if (form) { form.innerHTML = tbSlotFormHtml(); hydrateSheetSprites(form); }
+  const tab = document.querySelector(`.tb-slot-tab[data-i="${builder.slot}"]`);
+  if (tab && builder.draft) tab.textContent = `${builder.slot + 1}. ${builder.draft.mons[builder.slot].species.trim() || "ว่าง"}`;
+  tbUpdatePreview();
+}
+
+// ---------- หน้าเลือกแบบเต็มจอ (ค้นหา + รูป + ธาตุ เหมือน Showdown/Champions Lab) ----------
+const picker = { kind: "", idx: 0, query: "", rows: [], shown: 0, el: null };
+const PICKER_CHUNK = 60;
+let pickerSpeciesCache = null;
+function tbPickerRoster() {
+  if (pickerSpeciesCache && pickerSpeciesCache.ready === DEX.pokedexReady) return pickerSpeciesCache.rows;
+  const rows = POKEMON_LIST.filter(p => !p.isMega).map(p => {
+    const sp = dexEntryFor(p);
+    return { value: sp?.name || p.displayName, label: p.displayName, types: sp?.types || [], stats: sp?.baseStats || null, num: sp?.num || 9999 };
+  }).sort((a, b) => a.num - b.num || a.label.localeCompare(b.label));
+  pickerSpeciesCache = { ready: DEX.pokedexReady, rows };
+  return rows;
+}
+function tbPickerBuildRows() {
+  const q = picker.query.trim().toLowerCase();
+  const m = builder.draft.mons[builder.slot];
+  let rows = [];
+  if (picker.kind === "species") {
+    rows = tbPickerRoster().filter(r => !q || r.label.toLowerCase().includes(q) || r.value.toLowerCase().includes(q) || r.types.some(t => t.toLowerCase().includes(q)))
+      .map(r => ({ ...r, kind: "species", selected: toID(r.value) === toID(m.species) }));
+  } else if (picker.kind === "item") {
+    if (DEX.ready) {
+      const sp = dexSpecies(m.species);
+      const stones = sp ? Object.keys(DEX.megaIndex).filter(k => k.startsWith(toID(sp.name) + "|")).map(k => DEX.items[k.split("|")[1]]?.name).filter(Boolean) : [];
+      const names = DEX.itemNames.filter(n => !q || n.toLowerCase().includes(q));
+      const ordered = q ? names : [...stones, ...names.filter(n => !stones.includes(n))];
+      rows = ordered.map(n => ({ kind: "item", value: n, label: n, desc: DEX.items[toID(n)]?.shortDesc || "", tag: !q && stones.includes(n) ? "Mega Stone ของตัวนี้" : "", selected: toID(n) === toID(m.item) }));
+    }
+    if (!q) rows.unshift({ kind: "item", value: "", label: "(ไม่ใส่ไอเทม)", desc: "", selected: !m.item });
+  } else {
+    if (DEX.ready) {
+      rows = DEX.moveNames.filter(n => { if (!q) return true; const mv = DEX.moves[toID(n)]; return n.toLowerCase().includes(q) || String(mv.type).toLowerCase().includes(q) || String(mv.category).toLowerCase().includes(q); })
+        .map(n => ({ kind: "move", value: n, label: n, mv: DEX.moves[toID(n)], selected: toID(n) === toID(m.moves[picker.idx]) }));
+    }
+    if (!q) rows.unshift({ kind: "move", value: "", label: "(ล้างท่านี้)", selected: !m.moves[picker.idx] });
+  }
+  // พิมพ์ชื่อเองได้ (ใช้ได้แม้โหลดข้อมูลไม่สำเร็จ หรือชื่อใหม่ที่ยังไม่มีในฐานข้อมูล)
+  const raw = picker.query.trim();
+  if (raw && !rows.some(r => toID(r.value) === toID(raw))) rows.unshift({ kind: "custom", value: raw, label: `ใช้ชื่อ "${raw}"`, custom: true });
+  return rows;
+}
+function tbPickerRowHtml(r) {
+  const sel = r.selected ? " selected" : "";
+  const v = escapeHtml(r.value), label = escapeHtml(r.label);
+  if (r.kind === "species") {
+    const stats = r.stats ? `H${r.stats.hp} A${r.stats.atk} B${r.stats.def} C${r.stats.spa} D${r.stats.spd} S${r.stats.spe}` : "";
+    return `<button type="button" class="tb-row${sel}" data-tbp="pick" data-v="${v}"><img class="tb-row-img" loading="lazy" src="${escapeHtml(teamSheetSprite(r.value))}" alt="" onerror="this.style.visibility='hidden'"><span class="tb-row-main"><b>${label}</b><span class="tb-row-sub">${stats}</span></span><span class="tb-row-types">${r.types.map(sheetTypeBadge).join("")}</span></button>`;
+  }
+  if (r.kind === "item") {
+    return `<button type="button" class="tb-row${sel}" data-tbp="pick" data-v="${v}"><span class="tb-row-icon">${sheetItemIconHtml(r.value)}</span><span class="tb-row-main"><b>${label}</b>${r.tag ? `<em class="tb-tag">${r.tag}</em>` : ""}<span class="tb-row-sub">${escapeHtml(r.desc)}</span></span></button>`;
+  }
+  if (r.kind === "move" && r.mv) {
+    const mv = r.mv;
+    return `<button type="button" class="tb-row${sel}" data-tbp="pick" data-v="${v}"><span class="tb-row-main"><b>${label}</b><span class="tb-row-sub">${escapeHtml(mv.category)} · Pow ${mv.basePower || "—"} · Acc ${mv.accuracy === true ? "—" : mv.accuracy} · PP ${mv.pp ?? "—"}</span></span><span class="tb-row-types">${sheetTypeBadge(mv.type)}</span></button>`;
+  }
+  return `<button type="button" class="tb-row${sel}${r.custom ? " custom" : ""}" data-tbp="pick" data-v="${v}"><span class="tb-row-main"><b>${r.custom ? "➕ " : ""}${label}</b></span></button>`;
+}
+function tbPickerAppend() {
+  const list = tbPickerEl().querySelector("#tbp-list");
+  const chunk = picker.rows.slice(picker.shown, picker.shown + PICKER_CHUNK);
+  picker.shown += chunk.length;
+  list.insertAdjacentHTML("beforeend", chunk.map(tbPickerRowHtml).join(""));
+}
+function tbPickerRender(reset) {
+  const el = tbPickerEl(), list = el.querySelector("#tbp-list");
+  if (reset) {
+    picker.rows = tbPickerBuildRows(); picker.shown = 0; list.innerHTML = ""; list.scrollTop = 0;
+    if ((picker.kind === "item" || picker.kind === "move") && !DEX.ready) {
+      list.insertAdjacentHTML("beforeend", `<p class="small-text tb-picker-note">${DEX.failed ? "โหลดรายการไม่สำเร็จ พิมพ์ชื่อในช่องค้นหาแล้วเลือก “ใช้ชื่อ…” ได้" : "กำลังโหลดรายการ..."}</p>`);
+    }
+  }
+  el.querySelector("#tbp-count").textContent = picker.rows.filter(r => !r.custom).length;
+  tbPickerAppend();
+}
+function tbPickerClose() { picker.el?.classList.add("hidden"); }
+function tbPickerApply(value) {
+  const m = builder.draft.mons[builder.slot];
+  if (picker.kind === "species") tbSetSpecies(value);
+  else if (picker.kind === "item") { m.item = value; delete builder.megaView[builder.slot]; }
+  else m.moves[picker.idx] = value;
+  tbPickerClose();
+  tbRefreshSlot();
+}
+function tbPickerEl() {
+  if (picker.el) return picker.el;
+  const el = document.createElement("div");
+  el.className = "tb-picker hidden";
+  el.innerHTML = `<div class="tb-picker-panel">
+    <div class="tb-picker-head"><button type="button" class="btn-leave-small" data-tbp="close">‹ กลับ</button><h3 id="tbp-title"></h3><span class="tb-count" id="tbp-count"></span><button type="button" class="btn-leave-small" data-tbp="close">✕</button></div>
+    <div class="tb-picker-search"><input id="tbp-search" type="search" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"></div>
+    <div id="tbp-list" class="tb-picker-list"></div></div>`;
+  document.getElementById("screen-teambuilder").appendChild(el);
+  picker.el = el;
+  el.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-tbp]");
+    if (!btn) return;
+    if (btn.dataset.tbp === "close") tbPickerClose();
+    else if (btn.dataset.tbp === "pick") tbPickerApply(btn.dataset.v ?? "");
+  });
+  el.querySelector("#tbp-search").addEventListener("input", (event) => { picker.query = event.target.value; tbPickerRender(true); });
+  const list = el.querySelector("#tbp-list");
+  list.addEventListener("scroll", () => {
+    if (picker.shown < picker.rows.length && list.scrollTop + list.clientHeight >= list.scrollHeight - 240) tbPickerAppend();
+  });
+  return el;
+}
+function tbPickerOpen(kind, idx = 0) {
+  const el = tbPickerEl(), search = el.querySelector("#tbp-search");
+  picker.kind = kind; picker.idx = idx; picker.query = ""; search.value = "";
+  search.placeholder = kind === "species" ? "ค้นหาโปเกม่อนด้วยชื่อหรือธาตุ…" : kind === "item" ? "ค้นหาไอเทม…" : "ค้นหาท่าด้วยชื่อหรือธาตุ…";
+  el.querySelector("#tbp-title").textContent = kind === "species" ? "เลือกโปเกม่อน" : kind === "item" ? "เลือกไอเทม" : `เลือกท่าที่ ${idx + 1}`;
+  el.classList.remove("hidden");
+  tbPickerRender(true);
+  (kind === "species" ? loadPokedexOnly() : loadDex())
+    .then(() => { if (!el.classList.contains("hidden")) tbPickerRender(true); })
+    .catch(() => { if (!el.classList.contains("hidden")) tbPickerRender(true); });
+  setTimeout(() => search.focus(), 60);
+}
+
 (function initTeamBuilder() {
   const root = document.getElementById("screen-teambuilder");
   if (!root) return;
   document.getElementById("btn-open-teambuilder")?.addEventListener("click", openTeamBuilder);
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !root.classList.contains("hidden") && !document.querySelector(".gacha-overlay")) closeTeamBuilder(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || root.classList.contains("hidden") || document.querySelector(".gacha-overlay")) return;
+    if (picker.el && !picker.el.classList.contains("hidden")) tbPickerClose(); else closeTeamBuilder();
+  });
   root.addEventListener("click", async (event) => {
     if (event.target === root) { closeTeamBuilder(); return; }
     const btn = event.target.closest("[data-tb]");
@@ -4581,10 +5026,10 @@ async function tbSave() {
     else if (act === "back") { builder.view = "list"; tbRender(); }
     else if (act === "new") {
       if (Object.keys(builder.teams).length >= TB_LIMIT) return;
-      builder.editingId = null; builder.draft = tbBlankDraft(); builder.slot = 0; builder.view = "edit"; tbRender();
+      builder.editingId = null; builder.draft = tbBlankDraft(); builder.slot = 0; builder.megaView = {}; builder.view = "edit"; tbRender();
     } else if (act === "edit") {
       const t = builder.teams[btn.dataset.id]; if (!t) return;
-      builder.editingId = btn.dataset.id; builder.draft = tbNormalizeTeam(t); builder.slot = 0; builder.view = "edit"; tbRender();
+      builder.editingId = btn.dataset.id; builder.draft = tbNormalizeTeam(t); builder.slot = 0; builder.megaView = {}; builder.view = "edit"; tbRender();
     } else if (act === "delete") {
       const t = builder.teams[btn.dataset.id];
       if (!t || !confirm(`ลบทีม "${t.name || "ทีมไม่มีชื่อ"}" ใช่หรือไม่?`)) return;
@@ -4595,13 +5040,26 @@ async function tbSave() {
     } else if (act === "slot") {
       builder.slot = Number(btn.dataset.i);
       document.querySelectorAll(".tb-slot-tab").forEach(b => b.classList.toggle("active", Number(b.dataset.i) === builder.slot));
-      document.getElementById("tb-slot-form").innerHTML = tbSlotFormHtml();
-      tbFillAbilityList(builder.draft.mons[builder.slot].species);
+      tbRefreshSlot();
     } else if (act === "clear-slot") {
       builder.draft.mons[builder.slot] = tbBlankMon();
-      document.getElementById("tb-slot-form").innerHTML = tbSlotFormHtml();
-      const tab = document.querySelector(`.tb-slot-tab[data-i="${builder.slot}"]`); if (tab) tab.textContent = `${builder.slot + 1}. ว่าง`;
-      tbUpdatePreview();
+      tbRefreshSlot();
+    } else if (act === "pick-species") tbPickerOpen("species");
+    else if (act === "pick-item") tbPickerOpen("item");
+    else if (act === "pick-move") tbPickerOpen("move", Number(btn.dataset.i));
+    else if (act === "ability") {
+      builder.draft.mons[builder.slot].ability = btn.dataset.name || "";
+      tbRefreshSlot();
+    } else if (act === "mega-toggle") {
+      const slot = builder.slot, view = tbFormView(slot);
+      builder.megaView[slot] = !view.megaOn;
+      tbSyncPreviewMega(slot, !view.megaOn);
+      tbRefreshSlot();
+    } else if (act === "sp-inc" || act === "sp-dec") {
+      tbStepSp(btn.dataset.k, act === "sp-inc" ? 1 : -1);
+    } else if (act === "sp-reset") {
+      builder.draft.mons[builder.slot].evs = null;
+      tbRefreshSlot();
     } else if (act === "import") {
       const mons = parseShowdownTeam(document.getElementById("tb-import-text").value);
       if (!mons.length) { alert("อ่านโค้ดทีมไม่ได้ ตรวจรูปแบบจาก Pokémon Showdown อีกครั้ง"); return; }
@@ -4611,7 +5069,7 @@ async function tbSave() {
       // ถ้ามีค่าเกิน 32 ต่อค่า หรือรวมเกิน 66 แปลว่าเป็น EV แบบเดิม
       const legacy = padded.some(m => SHEET_STATS.some(k => Number(m.evs?.[k]) > 32) || tbEvTotal(m) > 66);
       builder.draft.evMode = legacy ? "ev" : "sp";
-      builder.slot = 0; tbRender();
+      builder.slot = 0; builder.megaView = {}; tbRender();
     } else if (act === "save") tbSave();
     else if (act === "copy") tbCopyText(exportShowdownTeam(tbCleanMons()));
   });
@@ -4621,9 +5079,8 @@ async function tbSave() {
     const d = builder.draft, m = d.mons[builder.slot], value = event.target.value;
     if (field === "name") d.name = value;
     else if (field === "code") d.code = value;
-    else if (field === "species" || field === "item" || field === "ability") m[field] = value;
-    else if (field === "nature") m.nature = value;
-    else if (field.startsWith("move")) m.moves[Number(field.slice(4))] = value;
+    else if (field === "ability") m.ability = value;
+    else if (field === "nature") { m.nature = value; tbUpdateStats(); }
     else if (field.startsWith("ev:")) {
       const key = field.slice(3), lim = tbEvLimits(d.evMode);
       m.evs = m.evs || {};
@@ -4632,28 +5089,23 @@ async function tbSave() {
       n = Math.min(n, lim.per, Math.max(0, lim.total - others));
       m.evs[key] = n;
       if (String(n) !== value && value !== "") event.target.value = n;
-      const totalEl = document.getElementById("tb-ev-total"); if (totalEl) totalEl.textContent = `รวม ${tbEvTotal(m)}/${lim.total}`;
+      tbSyncSpInputs(key, n, event.target);
+      tbUpdateStats();
     } else return;
     tbSchedulePreview();
   });
   root.addEventListener("change", (event) => {
     const field = event.target.dataset?.tbField;
     if (!field || !builder.draft) return;
-    const d = builder.draft, m = d.mons[builder.slot];
+    const d = builder.draft;
     if (field === "evmode") {
       d.evMode = event.target.value === "ev" ? "ev" : "sp";
       const lim = tbEvLimits(d.evMode);
       d.mons.forEach(mon => { if (mon.evs) SHEET_STATS.forEach(k => { if (Number(mon.evs[k]) > lim.per) mon.evs[k] = lim.per; }); });
-      document.getElementById("tb-slot-form").innerHTML = tbSlotFormHtml();
-      tbUpdatePreview();
-    } else if (field === "species") {
-      tbFillAbilityList(m.species);
-      const sp = dexSpecies(m.species);
-      if (sp && !m.ability.trim()) {
-        m.ability = Object.values(sp.abilities || {})[0] || "";
-        const abilityInput = root.querySelector('[data-tb-field="ability"]'); if (abilityInput) abilityInput.value = m.ability;
-      }
-      const tab = document.querySelector(`.tb-slot-tab[data-i="${builder.slot}"]`); if (tab) tab.textContent = `${builder.slot + 1}. ${m.species.trim() || "ว่าง"}`;
+      tbRefreshSlot();
+    } else if (field === "nature") {
+      d.mons[builder.slot].nature = event.target.value;
+      tbUpdateStats();
       tbUpdatePreview();
     }
   });
