@@ -953,6 +953,7 @@ function renderTournamentInner(room) {
   const t=room.tournament||initialTournament(room), phase=room.settings.phases[t.phaseIndex]||"swiss", stats=tournamentStats(room), current=t.history[t.history.length-1];
   const amSpectator=!!room.players[currentPlayerId]?.isSpectator;
   document.getElementById("tournament-room-code").textContent=currentRoomId;
+  syncTournamentMetaTabs(room);
   renderGachaPanel(room, document.getElementById("tournament-gacha-panel"), {});
   document.getElementById("tournament-meta").textContent=`เฟส ${t.phaseIndex+1}/${room.settings.phases.length}: ${tournamentLabel(phase)} • ${room.settings.bestOf} • ผู้เล่นสมัคร ${competitivePlayerIds(room).length}/${room.settings.maxPlayers}`;
   document.getElementById("tournament-date").textContent=`เริ่มการแข่งขัน: ${formatTournamentDate(room.createdAt)}${room.completedAt?` • จบ: ${formatTournamentDate(room.completedAt)}`:""}`;
@@ -1140,6 +1141,13 @@ const pokemonListLookup = (() => {
 function findPokemonEntry(name) {
   const norm = normalizePokeName(name);
   if (!norm) return null;
+  // ชื่อเมก้าแบบ Showdown (Charizard-Mega-Y) -> รูปแบบของแอป (mega-charizard-y) ไม่งั้นจะหลุดไปจับคู่กับร่างปกติ
+  const megaMatch = /^(.+?)[-\s]mega(?:[-\s]([xyz]))?$/i.exec(String(name).trim());
+  if (megaMatch) {
+    const key = normalizePokeName(`mega-${megaMatch[1]}${megaMatch[2] ? "-" + megaMatch[2] : ""}`);
+    const hit = pokemonListLookup.byApiName.get(key) || pokemonListLookup.byDisplayName.get(key);
+    if (hit) return hit;
+  }
   return pokemonListLookup.byApiName.get(norm)
     || pokemonListLookup.byDisplayName.get(norm)
     // ตัดท้ายร่าง/ฟอร์มออก แล้วลองจับคู่แค่ชื่อร่างพื้นฐาน (เช่น "Aegislash-Blank" -> "Aegislash")
@@ -2562,6 +2570,11 @@ function renderArchiveDetail(archive) {
 
   const league = archive.league;
   const leagueSection = document.getElementById("adet-league-section");
+  const metaSection = document.getElementById("adet-meta-section"), metaTab = document.getElementById("adet-tab-meta");
+  archiveDetailCurrent = archive;
+  const metaOk = isTeamSheetMode({ settings: archive.settings });
+  metaTab?.classList.toggle("hidden", !metaOk);
+  if (metaSection) { metaSection.classList.add("hidden"); metaSection.innerHTML = ""; }
   const tournamentHistory = [...(archive.tournament?.phaseHistory || []), ...(archive.tournament?.history || [])];
   if (tournamentHistory.length) {
     renderArchiveMatchHistory(archive);
@@ -2656,18 +2669,16 @@ function renderArchiveLeague(archive) {
   `;
 }
 
-document.getElementById("adet-tab-teams").addEventListener("click", () => {
-  document.getElementById("adet-tab-teams").classList.add("active");
-  document.getElementById("adet-tab-league").classList.remove("active");
-  document.getElementById("adet-teams-section").classList.remove("hidden");
-  document.getElementById("adet-league-section").classList.add("hidden");
-});
-document.getElementById("adet-tab-league").addEventListener("click", () => {
-  document.getElementById("adet-tab-league").classList.add("active");
-  document.getElementById("adet-tab-teams").classList.remove("active");
-  document.getElementById("adet-league-section").classList.remove("hidden");
-  document.getElementById("adet-teams-section").classList.add("hidden");
-});
+function showArchiveTab(which) {
+  [["teams", "adet-tab-teams", "adet-teams-section"], ["league", "adet-tab-league", "adet-league-section"], ["meta", "adet-tab-meta", "adet-meta-section"]].forEach(([key, tab, section]) => {
+    document.getElementById(tab)?.classList.toggle("active", key === which);
+    document.getElementById(section)?.classList.toggle("hidden", key !== which);
+  });
+  if (which === "meta" && archiveDetailCurrent) renderMetagameInto(document.getElementById("adet-meta-section"), archiveDetailCurrent.players);
+}
+document.getElementById("adet-tab-teams").addEventListener("click", () => showArchiveTab("teams"));
+document.getElementById("adet-tab-meta")?.addEventListener("click", () => showArchiveTab("meta"));
+document.getElementById("adet-tab-league").addEventListener("click", () => showArchiveTab("league"));
 document.getElementById("btn-archive-detail-back").addEventListener("click", () => {
   archiveEditMode = false;
   if (archivesDirty) {
@@ -4114,7 +4125,6 @@ function renderGachaPanel(room, el, opts = {}) {
     else if (act === "trade-close") gachaTradeAct("close");
   };
 }
-
 // =====================================================================
 // Team Builder + การ์ดชีททีม (สไตล์ VGCode)
 // - ข้อมูลอ้างอิงดึงอัตโนมัติจาก Pokémon Showdown (pokedex / moves / items / abilities)
@@ -4225,6 +4235,66 @@ function loadDex() {
     });
   }
   return dexPromise;
+}
+// ---------- ท่าที่เรียนได้จริง (Learnset ของ Showdown, รุ่น Gen 9) ----------
+// รวมท่าของร่างก่อนวิวัฒนาการ (ท่าเลเวล/ไข่/TM/ครู) และฟอร์มต่างๆ • เมก้าใช้ท่าของร่างปกติ
+// ถ้าโปเกม่อนตัวนั้นไม่มีข้อมูล Gen 9 เลย จะใช้รุ่นล่าสุดที่มีข้อมูลแทน
+const LEARN = { ready: false, failed: false, failedAt: 0, data: null, cache: {} };
+let learnPromise = null;
+function loadLearnsets() {
+  if (LEARN.ready) return Promise.resolve(LEARN);
+  if (LEARN.failed && Date.now() - LEARN.failedAt < 60000) return Promise.reject(new Error("learnsets unavailable"));
+  if (!learnPromise) {
+    learnPromise = (async () => {
+      await loadPokedexOnly();
+      const json = await fetch(SHOWDOWN_DATA_URL + "learnsets.json").then(r => (r.ok ? r.json() : null)).catch(() => null);
+      LEARN.data = json || await dexLoadScript("learnsets", "BattleLearnsets");
+      LEARN.cache = {};
+      LEARN.ready = true;
+      return LEARN;
+    })().catch(error => {
+      LEARN.failed = true; LEARN.failedAt = Date.now(); learnPromise = null;
+      console.error("load learnsets failed:", error);
+      throw error;
+    });
+  }
+  return learnPromise;
+}
+function learnGen(source) { const m = /^(\d+)/.exec(String(source)); return m ? Number(m[1]) : 0; }
+function learnableMoveIds(speciesName) {
+  if (!LEARN.ready || !DEX.pokedexReady) return null;
+  const sp = dexSpecies(speciesName);
+  if (!sp) return null;
+  const key = toID(sp.name);
+  if (key in LEARN.cache) return LEARN.cache[key];
+  const sets = [], seen = new Set();
+  const own = e => LEARN.data[toID(e.name)]?.learnset;
+  const addChain = (start) => {
+    let cur = start;
+    while (cur && !seen.has(cur.name)) {
+      seen.add(cur.name);
+      const mine = own(cur);
+      if (mine) sets.push(mine);
+      const regional = /-(Alola|Galar|Hisui|Paldea)/.test(cur.name);
+      if (cur.baseSpecies && cur.baseSpecies !== cur.name && (!mine || !regional)) {
+        const base = dexSpecies(cur.baseSpecies), baseLearn = base && own(base);
+        if (baseLearn) sets.push(baseLearn);
+      }
+      cur = cur.prevo ? DEX.pokedex[toID(cur.prevo)] : null;
+    }
+  };
+  addChain(/^Mega/.test(sp.forme || "") ? (dexSpecies(sp.baseSpecies) || sp) : sp);
+  let maxGen = 0;
+  sets.forEach(ls => Object.values(ls).forEach(srcs => (srcs || []).forEach(s => { maxGen = Math.max(maxGen, learnGen(s)); })));
+  const collect = gen => {
+    const out = new Set();
+    sets.forEach(ls => Object.entries(ls).forEach(([mv, srcs]) => { if ((srcs || []).some(s => learnGen(s) === gen)) out.add(mv); }));
+    return out;
+  };
+  let result = collect(9);
+  if (result.size < 4 && maxGen && maxGen < 9) result = collect(maxGen);
+  LEARN.cache[key] = result.size ? result : null;
+  return LEARN.cache[key];
 }
 function dexSpecies(name) { return DEX.pokedexReady ? (DEX.pokedex[toID(name)] || null) : null; }
 function dexMove(name) { return DEX.ready ? (DEX.moves[toID(name)] || null) : null; }
@@ -4863,9 +4933,11 @@ function tbSlotFormHtml() {
   const name = v.entry?.name || m.species.trim();
   const sprite = name ? (sheetSpriteResolved.get(name) || teamSheetSprite(name)) : "";
   const hero = name ? `<img class="tb-hero" src="${escapeHtml(sprite)}" data-poke-name="${escapeHtml(name)}" alt="" onerror="this.style.visibility='hidden'">` : '<div class="tb-hero empty">?</div>';
+  const learn = learnableMoveIds(m.species);
   const moves = [0, 1, 2, 3].map(i => {
     const mv = m.moves[i], info = dexMove(mv);
-    return `<button type="button" class="tb-pick tb-pick-move${mv ? " filled" : ""}" data-tb="pick-move" data-i="${i}"><i style="background:${info ? (SHEET_TYPE_COLORS[info.type] || "#7d8bb0") : "#7d8bb0"}"></i><span>${mv ? escapeHtml(mv) : `ท่าที่ ${i + 1}`}</span><em>▾</em></button>`;
+    const bad = !!(mv && learn && !learn.has(toID(mv)));
+    return `<button type="button" class="tb-pick tb-pick-move${mv ? " filled" : ""}${bad ? " bad" : ""}" data-tb="pick-move" data-i="${i}"${bad ? ' title="ท่านี้โปเกม่อนตัวนี้เรียนไม่ได้ตามข้อมูลของ Showdown (Gen 9)"' : ""}><i style="background:${info ? (SHEET_TYPE_COLORS[info.type] || "#7d8bb0") : "#7d8bb0"}"></i><span>${mv ? escapeHtml(mv) : `ท่าที่ ${i + 1}`}</span><em>${bad ? "⚠️" : "▾"}</em></button>`;
   }).join("");
   return `<div class="tb-slot-form">
     <div class="tb-slot-top">
@@ -4891,7 +4963,7 @@ function tbRefreshSlot() {
 }
 
 // ---------- หน้าเลือกแบบเต็มจอ (ค้นหา + รูป + ธาตุ เหมือน Showdown/Champions Lab) ----------
-const picker = { kind: "", idx: 0, query: "", rows: [], shown: 0, el: null };
+const picker = { kind: "", idx: 0, query: "", rows: [], shown: 0, el: null, onlyLearn: true };
 const PICKER_CHUNK = 60;
 let pickerSpeciesCache = null;
 function tbPickerRoster() {
@@ -4921,7 +4993,8 @@ function tbPickerBuildRows() {
     if (!q) rows.unshift({ kind: "item", value: "", label: "(ไม่ใส่ไอเทม)", desc: "", selected: !m.item });
   } else {
     if (DEX.ready) {
-      rows = DEX.moveNames.filter(n => { if (!q) return true; const mv = DEX.moves[toID(n)]; return n.toLowerCase().includes(q) || String(mv.type).toLowerCase().includes(q) || String(mv.category).toLowerCase().includes(q); })
+      const learn = picker.onlyLearn ? learnableMoveIds(m.species) : null;
+      rows = DEX.moveNames.filter(n => { if (learn && !learn.has(toID(n))) return false; if (!q) return true; const mv = DEX.moves[toID(n)]; return n.toLowerCase().includes(q) || String(mv.type).toLowerCase().includes(q) || String(mv.category).toLowerCase().includes(q); })
         .map(n => ({ kind: "move", value: n, label: n, mv: DEX.moves[toID(n)], selected: toID(n) === toID(m.moves[picker.idx]) }));
     }
     if (!q) rows.unshift({ kind: "move", value: "", label: "(ล้างท่านี้)", selected: !m.moves[picker.idx] });
@@ -4953,6 +5026,16 @@ function tbPickerAppend() {
   picker.shown += chunk.length;
   list.insertAdjacentHTML("beforeend", chunk.map(tbPickerRowHtml).join(""));
 }
+function tbLearnNote() {
+  if (picker.kind !== "move") return "";
+  const m = builder.draft.mons[builder.slot], sp = dexSpecies(m.species);
+  if (!picker.onlyLearn) return "แสดงทุกท่า (ไม่กรอง)";
+  if (!m.species.trim()) return "เลือกโปเกม่อนก่อนถึงจะกรองท่าที่เรียนได้ (ตอนนี้แสดงทุกท่า)";
+  if (LEARN.failed) return "โหลดข้อมูลท่าที่เรียนได้ไม่สำเร็จ — แสดงทุกท่าแทน";
+  if (!LEARN.ready) return "กำลังโหลดข้อมูลท่าที่เรียนได้... (แสดงทุกท่าไปก่อน)";
+  if (!learnableMoveIds(m.species)) return "ไม่พบข้อมูลท่าของโปเกม่อนตัวนี้ — แสดงทุกท่าแทน";
+  return `กรองเฉพาะท่าที่ ${sp?.name || m.species} เรียนได้ (ข้อมูล Gen 9 ของ Showdown)`;
+}
 function tbPickerRender(reset) {
   const el = tbPickerEl(), list = el.querySelector("#tbp-list");
   if (reset) {
@@ -4962,6 +5045,7 @@ function tbPickerRender(reset) {
     }
   }
   el.querySelector("#tbp-count").textContent = picker.rows.filter(r => !r.custom).length;
+  el.querySelector("#tbp-learn-note").textContent = tbLearnNote();
   tbPickerAppend();
 }
 function tbPickerClose() { picker.el?.classList.add("hidden"); }
@@ -4980,6 +5064,7 @@ function tbPickerEl() {
   el.innerHTML = `<div class="tb-picker-panel">
     <div class="tb-picker-head"><button type="button" class="btn-leave-small" data-tbp="close">‹ กลับ</button><h3 id="tbp-title"></h3><span class="tb-count" id="tbp-count"></span><button type="button" class="btn-leave-small" data-tbp="close">✕</button></div>
     <div class="tb-picker-search"><input id="tbp-search" type="search" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"></div>
+    <div class="tb-picker-learn hidden" id="tbp-learn-row"><label><input type="checkbox" id="tbp-learn" checked> เฉพาะท่าที่เรียนได้</label><span id="tbp-learn-note" class="small-text"></span></div>
     <div id="tbp-list" class="tb-picker-list"></div></div>`;
   document.getElementById("screen-teambuilder").appendChild(el);
   picker.el = el;
@@ -4990,6 +5075,7 @@ function tbPickerEl() {
     else if (btn.dataset.tbp === "pick") tbPickerApply(btn.dataset.v ?? "");
   });
   el.querySelector("#tbp-search").addEventListener("input", (event) => { picker.query = event.target.value; tbPickerRender(true); });
+  el.querySelector("#tbp-learn").addEventListener("change", (event) => { picker.onlyLearn = !!event.target.checked; tbPickerRender(true); });
   const list = el.querySelector("#tbp-list");
   list.addEventListener("scroll", () => {
     if (picker.shown < picker.rows.length && list.scrollTop + list.clientHeight >= list.scrollHeight - 240) tbPickerAppend();
@@ -5001,8 +5087,16 @@ function tbPickerOpen(kind, idx = 0) {
   picker.kind = kind; picker.idx = idx; picker.query = ""; search.value = "";
   search.placeholder = kind === "species" ? "ค้นหาโปเกม่อนด้วยชื่อหรือธาตุ…" : kind === "item" ? "ค้นหาไอเทม…" : "ค้นหาท่าด้วยชื่อหรือธาตุ…";
   el.querySelector("#tbp-title").textContent = kind === "species" ? "เลือกโปเกม่อน" : kind === "item" ? "เลือกไอเทม" : `เลือกท่าที่ ${idx + 1}`;
+  el.querySelector("#tbp-learn-row").classList.toggle("hidden", kind !== "move");
+  el.querySelector("#tbp-learn").checked = picker.onlyLearn;
   el.classList.remove("hidden");
   tbPickerRender(true);
+  if (kind === "move") {
+    loadDex().then(() => loadLearnsets()).then(() => {
+      if (!el.classList.contains("hidden")) tbPickerRender(true);
+      if (builder.view === "edit") tbRefreshSlot();
+    }).catch(() => { if (!el.classList.contains("hidden")) tbPickerRender(true); });
+  }
   (kind === "species" ? loadPokedexOnly() : loadDex())
     .then(() => { if (!el.classList.contains("hidden")) tbPickerRender(true); })
     .catch(() => { if (!el.classList.contains("hidden")) tbPickerRender(true); });
@@ -5136,3 +5230,112 @@ function evSavedPicker() {
   const html = savedTeamOptionsHtml();
   return html ? `<div class="saved-team-row"><select id="ev-saved-team">${html}</select><button type="button" class="btn-leave-small" data-ev-act="load-saved-team">📂 ใช้ทีมที่บันทึกไว้</button></div>` : "";
 }
+
+let archiveDetailCurrent = null;
+// =====================================================================
+// Metagame (สถิติการใช้โปเกม่อนจาก Team Sheet) — โหมดปกติเท่านั้น
+// - โปเกม่อนที่ถือเมก้าสโตนจะถูกแปลงเป็นร่างเมก้าตอนนับ (เช่น Charizard @ Charizardite Y = Mega Charizard Y)
+// - นับเป็น "จำนวนทีม" (ทีมละครั้งต่อตัว) และเปอร์เซ็นต์ = ทีมที่ใช้ / ทีมที่ส่ง Team Sheet ทั้งหมด
+// =====================================================================
+function megaLabel(name) {
+  const m = /^(.+?)-Mega(?:-(X|Y|Z))?$/i.exec(String(name || ""));
+  return m ? `Mega ${m[1]}${m[2] ? " " + m[2].toUpperCase() : ""}` : String(name || "");
+}
+function computeMetagame(players) {
+  const teams = [];
+  Object.entries(players || {}).forEach(([pid, p]) => {
+    if (!p || p.isSpectator) return;
+    const mons = sheetMonsOf(p);
+    if (mons.length) teams.push({ pid, name: p.name, mons });
+  });
+  const bump = (map, key, data) => { const cur = map.get(key) || { ...data, count: 0 }; cur.count++; map.set(key, cur); };
+  const species = new Map(), megas = new Map(), patterns = new Map(), moves = new Map(), items = new Map(), natures = new Map();
+  teams.forEach(team => {
+    const seenSpecies = new Set(), seenMegas = new Map(), seenMoves = new Set(), seenItems = new Set(), seenNatures = new Set();
+    team.mons.forEach(m => {
+      const forms = sheetForms(m);                                   // ต้องมีข้อมูล Pokédex ถึงจะรู้จักเมก้า
+      const base = forms.base || forms.species;
+      const baseName = base?.name || m.species;
+      if (!seenSpecies.has(baseName)) { seenSpecies.add(baseName); bump(species, baseName, { name: baseName, types: base?.types || [], spriteName: baseName }); }
+      if (forms.mega && !seenMegas.has(forms.mega.name)) seenMegas.set(forms.mega.name, forms.mega);
+      (m.moves || []).forEach(mv => { const k = toID(mv); if (k && !seenMoves.has(k)) { seenMoves.add(k); bump(moves, k, { name: mv }); } });
+      if (m.item) { const k = toID(m.item); if (!seenItems.has(k)) { seenItems.add(k); bump(items, k, { name: m.item }); } }
+      if (m.nature) { const k = toID(m.nature); if (!seenNatures.has(k)) { seenNatures.add(k); bump(natures, k, { name: m.nature }); } }
+    });
+    seenMegas.forEach((entry, name) => bump(megas, name, { name, label: megaLabel(name), types: entry.types || [] }));
+    if (seenMegas.size) {
+      const names = [...seenMegas.keys()].sort();
+      bump(patterns, names.join("|"), { names, items: names.map(n => ({ name: n, label: megaLabel(n), types: seenMegas.get(n).types || [] })) });
+    }
+  });
+  const rank = map => [...map.values()].sort((a, b) => b.count - a.count || String(a.name).localeCompare(String(b.name)));
+  return {
+    total: teams.length, species: rank(species), megas: rank(megas),
+    patterns: [...patterns.values()].sort((a, b) => b.count - a.count || a.names.length - b.names.length || a.names.join().localeCompare(b.names.join())),
+    moves: rank(moves), items: rank(items), natures: rank(natures)
+  };
+}
+function metaTypeSquares(types) {
+  return (types || []).map(t => `<span class="meta-type" style="--tc:${SHEET_TYPE_COLORS[t] || "#888"}" title="${escapeHtml(t)}">${escapeHtml(String(t).slice(0, 3).toUpperCase())}</span>`).join("");
+}
+function metaPct(count, total) { return total ? (count / total * 100).toFixed(1) + "%" : "0%"; }
+function metaCardHtml(item, total, opts = {}) {
+  const label = opts.mega ? item.label : item.name;
+  const sprite = sheetSpriteResolved.get(label) || teamSheetSprite(item.name);
+  return `<div class="meta-card"><div class="meta-card-top"><div class="meta-types">${metaTypeSquares(item.types)}</div><img class="meta-sprite" src="${escapeHtml(sprite)}" data-poke-name="${escapeHtml(label)}" alt="${escapeHtml(label)}" onerror="this.style.visibility='hidden'"><span class="meta-pct">${metaPct(item.count, total)}</span></div>
+    <div class="meta-card-bottom"><b class="meta-name">${escapeHtml(label)}</b><span class="meta-count">${item.count} ทีม</span></div></div>`;
+}
+function metaPatternHtml(p, total) {
+  const showTypes = p.items.length <= 2;
+  const sprites = p.items.map(it => `<div class="meta-pat-mon"><div class="meta-types">${showTypes ? metaTypeSquares(it.types) : ""}</div><img class="meta-sprite${p.items.length > 3 ? " small" : ""}" src="${escapeHtml(sheetSpriteResolved.get(it.label) || teamSheetSprite(it.name))}" data-poke-name="${escapeHtml(it.label)}" alt="${escapeHtml(it.label)}" onerror="this.style.visibility='hidden'">${p.items.length > 2 ? `<small>${escapeHtml(it.label)}</small>` : ""}</div>`).join("");
+  return `<div class="meta-card wide"><div class="meta-card-top"><div class="meta-pat-row">${sprites}</div><span class="meta-pct">${metaPct(p.count, total)}</span></div>
+    <div class="meta-card-bottom">${p.items.length <= 2 ? `<b class="meta-name">${p.items.map(i => escapeHtml(i.label)).join(" <span class=\"meta-plus\">+</span> ")}</b>` : ""}<span class="meta-count">${p.count} ทีม</span></div></div>`;
+}
+function metaListHtml(title, list, total, n = 10) {
+  if (!list.length) return "";
+  return `<div class="meta-list"><h4>${title}</h4><ol>${list.slice(0, n).map(x => `<li><span>${escapeHtml(x.name)}</span><b>${metaPct(x.count, total)}</b><small>${x.count} ทีม</small></li>`).join("")}</ol></div>`;
+}
+function metagameHtml(stats, opts = {}) {
+  if (!stats.total) return '<p class="small-text meta-empty">ยังไม่มีใครส่ง Team Sheet จึงยังไม่มีสถิติ</p>';
+  const note = opts.dexMissing ? '<p class="small-text">⚠️ โหลดข้อมูลโปเกม่อนไม่สำเร็จ จึงยังแปลงเป็นร่างเมก้าและแสดงธาตุไม่ได้</p>' : "";
+  const megaSection = stats.megas.length ? `<h3>สถิติการใช้ Mega Pokémon</h3><div class="meta-grid">${stats.megas.map(m => metaCardHtml(m, stats.total, { mega: true })).join("")}</div>` : "";
+  const patternSection = stats.patterns.length ? `<h3>5 อันดับรูปแบบทีม Mega</h3><div class="meta-grid one">${stats.patterns.slice(0, 5).map(p => metaPatternHtml(p, stats.total)).join("")}</div>` : "";
+  const extras = (stats.moves.length || stats.items.length || stats.natures.length)
+    ? `<details class="meta-extra"><summary>📋 ท่า / ไอเทม / นิสัยที่นิยม</summary><div class="meta-lists">${metaListHtml("ท่า", stats.moves, stats.total)}${metaListHtml("ไอเทม", stats.items, stats.total)}${metaListHtml("นิสัย", stats.natures, stats.total, 6)}</div></details>` : "";
+  return `<div class="meta-page"><p class="small-text meta-total">วิเคราะห์จาก <b>${stats.total}</b> ทีมที่ส่ง Team Sheet • ตัวที่ถือเมก้าสโตนนับเป็นร่างเมก้า</p>${note}
+    <h3>${Math.min(12, stats.species.length)} อันดับ Pokémon</h3><div class="meta-grid">${stats.species.slice(0, 12).map(s => metaCardHtml(s, stats.total)).join("")}</div>
+    ${megaSection}${patternSection}${extras}</div>`;
+}
+let metagameRenderToken = 0;
+function renderMetagameInto(el, players) {
+  if (!el) return;
+  const token = ++metagameRenderToken;
+  const draw = (dexMissing) => {
+    if (token !== metagameRenderToken) return;
+    el.innerHTML = metagameHtml(computeMetagame(players), { dexMissing });
+    hydrateSheetSprites(el);
+  };
+  if (DEX.pokedexReady) { draw(false); return; }
+  el.innerHTML = '<p class="small-text">กำลังโหลดข้อมูลโปเกม่อน...</p>';
+  loadPokedexOnly().then(() => draw(false)).catch(() => draw(true));
+}
+// ปุ่มแท็บ: ทัวร์นาเมนต์สด
+function metaTabAvailable(settings) { return isTeamSheetMode({ settings }); }
+function setTournamentMetaView(on) {
+  const screen = document.getElementById("screen-tournament");
+  if (!screen) return;
+  screen.classList.toggle("meta-view", !!on);
+  document.getElementById("tournament-tab-main")?.classList.toggle("active", !on);
+  document.getElementById("tournament-tab-meta")?.classList.toggle("active", !!on);
+  if (on && latestRoom) renderMetagameInto(document.getElementById("tournament-metagame"), latestRoom.players);
+}
+function syncTournamentMetaTabs(room) {
+  const tabs = document.getElementById("tournament-meta-tabs"), screen = document.getElementById("screen-tournament");
+  if (!tabs || !screen) return;
+  const available = metaTabAvailable(room.settings);
+  tabs.classList.toggle("hidden", !available);
+  if (!available && screen.classList.contains("meta-view")) setTournamentMetaView(false);
+  if (available && screen.classList.contains("meta-view")) renderMetagameInto(document.getElementById("tournament-metagame"), room.players);
+}
+document.getElementById("tournament-tab-main")?.addEventListener("click", () => setTournamentMetaView(false));
+document.getElementById("tournament-tab-meta")?.addEventListener("click", () => setTournamentMetaView(true));

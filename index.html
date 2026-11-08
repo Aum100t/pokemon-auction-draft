@@ -103,6 +103,8 @@
   <!-- ศูนย์ควบคุมการแข่งขัน: ใช้ได้ทั้งห้องปกติและหลังประมูล -->
   <div id="screen-tournament" class="card hidden">
     <div class="game-header"><h2 style="margin:0;">🏆 VGC Lab Tournament</h2><span class="small-text">ห้อง <b id="tournament-room-code"></b></span></div>
+    <div class="section-tabs hidden" id="tournament-meta-tabs"><button class="section-tab-btn active" id="tournament-tab-main">🏆 อันดับ / การแข่งขัน</button><button class="section-tab-btn" id="tournament-tab-meta">📊 Metagame</button></div>
+    <div id="tournament-metagame"></div>
     <div id="tournament-meta" class="tournament-meta"></div>
     <p class="small-text" id="tournament-date"></p>
     <div id="tournament-checkin" class="checkin-box"></div>
@@ -343,12 +345,14 @@
     <div class="section-tabs">
       <button class="section-tab-btn active" id="adet-tab-teams">📋 Team Sheet</button>
       <button class="section-tab-btn" id="adet-tab-league">⚔️ ประวัติการต่อสู้</button>
+      <button class="section-tab-btn hidden" id="adet-tab-meta">📊 Metagame</button>
     </div>
 
     <div id="adet-teams-section">
       <div class="teams-summary-grid" id="adet-teams-grid"></div>
       <div id="adet-banned-summary"></div>
     </div>
+    <div id="adet-meta-section" class="hidden"></div>
     <div id="adet-league-section" class="hidden">
       <div id="adet-match-history"></div>
       <h3 style="margin:20px 0 10px;">📊 ตารางคะแนน</h3>

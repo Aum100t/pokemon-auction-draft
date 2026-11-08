@@ -464,3 +464,44 @@ body.tb-open { overflow:hidden; }
 .bracket-tag.final { background:#d4a017; color:#172740; }
 .bracket-tag.reset { background:#8f4fd6; }
 .bracket-tag.rematch { background:#6b7390; }
+
+/* ---------- กรองท่าที่เรียนได้ ---------- */
+.tb-picker-learn { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 12px; border-bottom:1px solid rgba(166,204,255,.18); }
+.tb-picker-learn.hidden { display:none; }
+.tb-picker-learn label { display:inline-flex; align-items:center; gap:6px; font-weight:700; cursor:pointer; }
+.tb-pick.bad { border-color:#e08a2c; }
+.tb-pick.bad em { opacity:1; }
+
+/* ---------- Metagame (แท็บแยก) ---------- */
+#tournament-metagame { display:none; }
+#screen-tournament.meta-view > *:not(.game-header):not(#tournament-meta-tabs):not(#tournament-metagame) { display:none !important; }
+#screen-tournament.meta-view > #tournament-metagame { display:block; }
+.meta-page h3 { margin:26px 0 14px; font-size:1.55rem; }
+.meta-total { margin:6px 0; }
+.meta-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; padding-bottom:26px; }
+.meta-grid.one { grid-template-columns:1fr; }
+@media (min-width:900px) { .meta-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } .meta-grid.one { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+.meta-card { position:relative; border:1px solid rgba(255,255,255,.12); border-radius:22px; background:rgba(14,18,32,.85); }
+.meta-card-top { position:relative; display:flex; align-items:center; justify-content:center; min-height:200px; padding:44px 10px 20px; border-bottom:1px solid rgba(255,255,255,.12); border-radius:22px 22px 0 0; background:rgba(255,255,255,.03); }
+.meta-types { position:absolute; top:12px; left:50%; display:flex; gap:6px; transform:translateX(-10%); }
+.meta-sprite { max-width:78%; max-height:150px; object-fit:contain; filter:drop-shadow(0 6px 10px rgba(0,0,0,.45)); }
+.meta-sprite.small { max-height:92px; }
+.meta-type { display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; border-radius:4px; background:var(--tc,#888); color:#fff; font-size:.52rem; font-weight:900; letter-spacing:.02em; text-shadow:0 1px 1px rgba(0,0,0,.4); }
+.meta-pct { position:absolute; left:50%; bottom:-24px; transform:translateX(-50%); padding:9px 26px; border:1px solid rgba(255,255,255,.14); border-radius:999px; background:#0a0c14; font-size:1.35rem; font-weight:800; white-space:nowrap; }
+.meta-card-bottom { display:flex; flex-direction:column; align-items:center; gap:4px; min-height:70px; padding:38px 10px 18px; text-align:center; }
+.meta-name { font-size:1.2rem; overflow-wrap:anywhere; }
+.meta-plus { color:rgba(255,255,255,.5); }
+.meta-count { color:rgba(255,255,255,.62); font-size:1rem; }
+.meta-pat-row { display:flex; flex-wrap:wrap; align-items:flex-end; justify-content:center; gap:10px 18px; width:100%; }
+.meta-pat-mon { position:relative; display:flex; flex-direction:column; align-items:center; gap:4px; min-width:84px; padding-top:34px; }
+.meta-pat-mon .meta-types { top:0; left:50%; transform:translateX(-50%); }
+.meta-pat-mon small { font-size:.78rem; text-align:center; }
+.meta-extra { margin:6px 0 30px; padding:12px; border-radius:14px; background:rgba(255,255,255,.05); }
+.meta-extra summary { cursor:pointer; font-weight:700; }
+.meta-lists { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; margin-top:10px; }
+.meta-list h4 { margin:0 0 6px; }
+.meta-list ol { margin:0; padding-left:22px; font-size:.85rem; }
+.meta-list li { display:flex; align-items:baseline; gap:8px; padding:2px 0; }
+.meta-list li span { flex:1; min-width:0; overflow-wrap:anywhere; }
+.meta-list li small { color:rgba(255,255,255,.55); }
+.meta-empty { padding:24px 4px; }
