@@ -953,7 +953,7 @@ function renderTournamentInner(room) {
   const t=room.tournament||initialTournament(room), phase=room.settings.phases[t.phaseIndex]||"swiss", stats=tournamentStats(room), current=t.history[t.history.length-1];
   const amSpectator=!!room.players[currentPlayerId]?.isSpectator;
   document.getElementById("tournament-room-code").textContent=currentRoomId;
-  syncTournamentMetaTabs(room);
+  syncTournamentTabs(room);
   renderGachaPanel(room, document.getElementById("tournament-gacha-panel"), {});
   document.getElementById("tournament-meta").textContent=`เฟส ${t.phaseIndex+1}/${room.settings.phases.length}: ${tournamentLabel(phase)} • ${room.settings.bestOf} • ผู้เล่นสมัคร ${competitivePlayerIds(room).length}/${room.settings.maxPlayers}`;
   document.getElementById("tournament-date").textContent=`เริ่มการแข่งขัน: ${formatTournamentDate(room.createdAt)}${room.completedAt?` • จบ: ${formatTournamentDate(room.completedAt)}`:""}`;
@@ -5319,23 +5319,91 @@ function renderMetagameInto(el, players) {
   el.innerHTML = '<p class="small-text">กำลังโหลดข้อมูลโปเกม่อน...</p>';
   loadPokedexOnly().then(() => draw(false)).catch(() => draw(true));
 }
-// ปุ่มแท็บ: ทัวร์นาเมนต์สด
+// ---------- แท็บหน้าทัวร์นาเมนต์สด: อันดับ / ผลย้อนหลัง / Metagame ----------
+// ผลย้อนหลัง = ทุกรอบที่ผ่านมาของทุกเฟส (phaseHistory + history) ดูได้ทั้งผู้เล่น ผู้ชม และแอดมิน ระหว่างแข่งและหลังจบ
+let historyPlayerFilter = "";
 function metaTabAvailable(settings) { return isTeamSheetMode({ settings }); }
-function setTournamentMetaView(on) {
+function tournamentRounds(room) {
+  const t = room?.tournament;
+  return t ? [...(t.phaseHistory || []), ...(t.history || [])] : [];
+}
+function historyRoundLabel(room, round, index) {
+  const multiPhase = (room.settings?.phases?.length || 1) > 1;
+  const unit = round.format === "roundRobin" ? "สัปดาห์" : "รอบ";
+  const phase = multiPhase && round.phaseIndex !== undefined ? ` (เฟส ${round.phaseIndex + 1})` : "";
+  return round.format ? `${tournamentLabel(round.format)} • ${unit} ${round.round || index + 1}${phase}` : `รอบ ${index + 1}`;
+}
+function historyMatchHtml(room, round, m) {
+  const name = pid => escapeHtml(room.players?.[pid]?.name || "?");
+  if (m.isBye) {
+    const text = m.rest ? "พักรอบ (ไม่คิดแต้ม)" : round.format === "roundRobin" ? "พักรอบนี้ • 0 แต้ม" : "BYE • ชนะ +3";
+    return `<div class="history-match bye-card"><b>${name(m.player1Id)}</b>${bracketTagHtml(m)}<span class="badge">${text}</span></div>`;
+  }
+  const p1Won = m.winnerId && m.winnerId === m.player1Id, p2Won = m.winnerId && m.winnerId === m.player2Id;
+  const pending = !m.winnerId && m.pendingWinnerId ? `รอยืนยัน: ${name(m.pendingWinnerId)} ชนะ ${escapeHtml(m.pendingScore || "")}` : "";
+  const status = m.winnerId ? `ชนะ: ${name(m.winnerId)}` : (pending || "ยังไม่มีผล / กำลังแข่ง");
+  return `<div class="history-match${m.winnerId ? "" : " live"}"><span class="${p1Won ? "winner-name" : ""}">${name(m.player1Id)}</span><b class="history-score">${escapeHtml(m.score || "VS")}</b><span class="${p2Won ? "winner-name" : ""}">${name(m.player2Id)}</span><small>${bracketTagHtml(m)}${status}</small></div>`;
+}
+// สรุปชนะ-แพ้ของผู้เล่นที่เลือก (นับเฉพาะแมตช์ที่ยืนยันผลแล้ว ไม่นับบาย/พักรอบ)
+function historyRecord(rounds, pid) {
+  const rec = { wins: 0, losses: 0, byes: 0 };
+  rounds.forEach(round => (round.matches || []).forEach(m => {
+    if (!m.winnerId || (m.player1Id !== pid && m.player2Id !== pid)) return;
+    if (m.isBye) { if (!m.rest) rec.byes++; return; }
+    if (m.winnerId === pid) rec.wins++; else rec.losses++;
+  }));
+  return rec;
+}
+function tournamentHistoryHtml(room, filterPid) {
+  const rounds = tournamentRounds(room);
+  const players = Object.entries(room.players || {}).filter(([, p]) => !p.isSpectator).sort((a, b) => String(a[1].name).localeCompare(String(b[1].name)));
+  const select = `<select id="history-player-filter" aria-label="เลือกผู้เล่น"><option value="">ทุกคน</option>${players.map(([pid, p]) => `<option value="${escapeHtml(pid)}"${pid === filterPid ? " selected" : ""}>${escapeHtml(p.name)}${p.withdrawn ? " (ถอนตัว)" : ""}</option>`).join("")}</select>`;
+  const champion = room.tournament?.championId ? `<p class="hist-champion">🏆 แชมป์: <b>${escapeHtml(room.players?.[room.tournament.championId]?.name || "?")}</b></p>` : "";
+  let summary = "";
+  if (filterPid && room.players?.[filterPid]) {
+    const r = historyRecord(rounds, filterPid);
+    summary = `<p class="hist-record"><b>${escapeHtml(room.players[filterPid].name)}</b> — ชนะ ${r.wins} • แพ้ ${r.losses}${r.byes ? ` • บาย ${r.byes}` : ""}${room.players[filterPid].withdrawn ? " • ถอนตัวแล้ว" : ""}</p>`;
+  }
+  const lastIndex = rounds.length - 1;
+  const cards = rounds.map((round, index) => {
+    const matches = (round.matches || []).filter(m => !filterPid || m.player1Id === filterPid || m.player2Id === filterPid);
+    if (!matches.length) return "";
+    const decided = (round.matches || []).every(m => m.winnerId);
+    const live = index === lastIndex && !decided && room.status === "tournament";
+    return `<section class="history-round"><h3>${escapeHtml(historyRoundLabel(room, round, index))} <span class="hist-state ${live ? "live" : ""}">${live ? "กำลังแข่ง" : "จบแล้ว"}</span></h3>${matches.map(m => historyMatchHtml(room, round, m)).join("")}</section>`;
+  });
+  const body = cards.slice().reverse().join("") || `<p class="small-text">${rounds.length ? "ผู้เล่นคนนี้ยังไม่มีแมตช์" : "ยังไม่มีผลการแข่งขัน"}</p>`;
+  return `<div class="hist-page"><div class="hist-controls"><label>ผู้เล่น</label>${select}</div>${champion}${summary}${body}</div>`;
+}
+function renderTournamentHistory(room) {
+  const el = document.getElementById("tournament-history");
+  if (!el || !room) return;
+  const html = tournamentHistoryHtml(room, historyPlayerFilter);
+  if (el.dataset.sig === html) return;     // ไม่เปลี่ยน -> ไม่วาดใหม่ (กันหน้าจอกระตุกตอนเลื่อนอ่าน)
+  el.dataset.sig = html;
+  el.innerHTML = html;
+}
+function setTournamentView(view) {
   const screen = document.getElementById("screen-tournament");
   if (!screen) return;
-  screen.classList.toggle("meta-view", !!on);
-  document.getElementById("tournament-tab-main")?.classList.toggle("active", !on);
-  document.getElementById("tournament-tab-meta")?.classList.toggle("active", !!on);
-  if (on && latestRoom) renderMetagameInto(document.getElementById("tournament-metagame"), latestRoom.players);
+  screen.dataset.view = view;
+  ["main", "history", "meta"].forEach(v => document.getElementById("tournament-tab-" + v)?.classList.toggle("active", v === view));
+  if (view === "history" && latestRoom) renderTournamentHistory(latestRoom);
+  if (view === "meta" && latestRoom) renderMetagameInto(document.getElementById("tournament-metagame"), latestRoom.players);
 }
-function syncTournamentMetaTabs(room) {
+function syncTournamentTabs(room) {
   const tabs = document.getElementById("tournament-meta-tabs"), screen = document.getElementById("screen-tournament");
   if (!tabs || !screen) return;
-  const available = metaTabAvailable(room.settings);
-  tabs.classList.toggle("hidden", !available);
-  if (!available && screen.classList.contains("meta-view")) setTournamentMetaView(false);
-  if (available && screen.classList.contains("meta-view")) renderMetagameInto(document.getElementById("tournament-metagame"), room.players);
+  const metaOk = metaTabAvailable(room.settings);
+  tabs.classList.remove("hidden");
+  document.getElementById("tournament-tab-meta")?.classList.toggle("hidden", !metaOk);
+  if (!metaOk && screen.dataset.view === "meta") setTournamentView("main");
+  if (screen.dataset.view === "history") renderTournamentHistory(room);
+  if (screen.dataset.view === "meta") renderMetagameInto(document.getElementById("tournament-metagame"), room.players);
 }
-document.getElementById("tournament-tab-main")?.addEventListener("click", () => setTournamentMetaView(false));
-document.getElementById("tournament-tab-meta")?.addEventListener("click", () => setTournamentMetaView(true));
+["main", "history", "meta"].forEach(v => document.getElementById("tournament-tab-" + v)?.addEventListener("click", () => setTournamentView(v)));
+document.getElementById("tournament-history")?.addEventListener("change", (event) => {
+  if (event.target?.id !== "history-player-filter") return;
+  historyPlayerFilter = event.target.value;
+  if (latestRoom) renderTournamentHistory(latestRoom);
+});
